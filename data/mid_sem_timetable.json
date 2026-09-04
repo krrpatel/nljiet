@@ -1,0 +1,19 @@
+[
+  {
+    "exam_number": 1,
+    "subject_id": "f0059536-cec1-4abd-9abc-679fdd70a11b",
+    "branch": "CSE",
+    "semester": 5,
+    "academic_year_id": "ac4ebaf2-439d-4b9e-8ebb-109c387c7979",
+    "exam_date": "2026-08-11",
+    "start_time": "",
+    "end_time": "",
+    "venue": "",
+    "syllabus_pdf_url": "",
+    "published": true,
+    "subject_code": "BE05000171",
+    "subject_name": "Computer Networks",
+    "id": "1aaf106d-d665-46ee-badc-8f1166d0f1a8",
+    "created_date": "2026-09-04T09:01:25.018Z"
+  }
+]

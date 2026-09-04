@@ -1,14 +1,14 @@
 import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 import EnrollmentStep from "@/components/register/EnrollmentStep";
 import EmailPreviewStep from "@/components/register/EmailPreviewStep";
 import ConfirmEmailStep from "@/components/register/ConfirmEmailStep";
-import OtpStep from "@/components/register/OtpStep";
+import EmailVerificationNotice from "@/components/register/EmailVerificationNotice";
 import { safeReturnTo } from "@/lib/authReturnTo";
 
 // Registration flow: enrollment number -> Octopod validation (server-side) ->
 // masked verified-email preview -> student re-enters the same email -> email
-// OTP verification -> account created -> verified mapping stored -> dashboard.
+// Supabase email-link verification -> account created -> verified mapping stored -> dashboard.
 export default function Register() {
   const [step, setStep] = useState("enrollment");
   const [enrollmentNumber, setEnrollmentNumber] = useState("");
@@ -17,15 +17,19 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
   const [finalizeError, setFinalizeError] = useState(false);
+  const [validatedProfile, setValidatedProfile] = useState(null);
+  const [registrationDetails, setRegistrationDetails] = useState({ branch: "CSE", division: "D1" });
 
-  const handleValidateEnrollment = async (enrollment) => {
+  const handleValidateEnrollment = async (enrollment, details) => {
     setError("");
     setLoading(true);
     try {
-      const res = await base44.functions.invoke("octopodValidate", { enrollmentNumber: enrollment });
+      const res = await api.functions.invoke("octopodValidate", { enrollmentNumber: enrollment });
       setEnrollmentNumber(enrollment);
+      window.localStorage.setItem("portal_enrollment_number", enrollment);
+      setValidatedProfile(res.data);
+      setRegistrationDetails(details || { branch: "CSE", division: "D1" });
       setMaskedEmail(res.data.maskedEmail);
       setFullName(res.data.fullName);
       setStep("preview");
@@ -35,6 +39,8 @@ export default function Register() {
         setError("This enrollment number is already registered. Please log in instead.");
       } else if (code === "invalid_enrollment") {
         setError("Enrollment number could not be verified.");
+      } else if (code === "octopod_unavailable") {
+        setError("Octopod is temporarily unavailable. Please try again in a moment.");
       } else {
         setError("Enrollment verification is unavailable right now. Please try again later.");
       }
@@ -51,14 +57,14 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const res = await base44.functions.invoke("octopodConfirmEmail", {
+      const res = await api.functions.invoke("octopodConfirmEmail", {
         enrollmentNumber,
         enteredEmail,
       });
       const confirmedEmail = res.data.email;
       setEmail(confirmedEmail);
-      await base44.auth.register({ email: confirmedEmail, password });
-      setStep("otp");
+      await api.auth.register({ email: confirmedEmail, password, enrollmentNumber });
+      setStep("email");
     } catch (err) {
       const code = err?.response?.data?.error;
       if (code === "email_mismatch") {
@@ -67,6 +73,8 @@ export default function Register() {
         setError("This enrollment number is already registered. Please log in instead.");
       } else if (code === "invalid_enrollment") {
         setError("Enrollment number could not be verified. Please start again.");
+      } else if (code === "octopod_unavailable") {
+        setError("Octopod is temporarily unavailable. Please try again in a moment.");
       } else {
         setError(err?.message || "Could not continue. Please try again.");
       }
@@ -77,32 +85,25 @@ export default function Register() {
 
   const finalize = async () => {
     try {
-      await base44.functions.invoke("octopodCompleteRegistration", { enrollmentNumber });
+      await api.functions.invoke("octopodCompleteRegistration", { enrollmentNumber, email, profile: { ...validatedProfile, ...registrationDetails } });
       window.location.href = safeReturnTo();
     } catch {
       setFinalizeError(true);
     }
   };
 
-  const handleVerifyOtp = async () => {
+  const handleVerifyEmail = async () => {
     setError("");
     setFinalizeError(false);
     setLoading(true);
     try {
-      const result = await base44.auth.verifyOtp({ email, otpCode });
-      if (result?.access_token) {
-        base44.auth.setToken(result.access_token);
-      }
+      await api.auth.me();
       await finalize();
     } catch (err) {
       setError(err?.message || "Invalid verification code");
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleResend = async () => {
-    await base44.auth.resendOtp(email);
   };
 
   if (step === "enrollment") {
@@ -121,18 +122,6 @@ export default function Register() {
   if (step === "confirm") {
     return <ConfirmEmailStep maskedEmail={maskedEmail} onSubmit={handleConfirm} loading={loading} error={error} />;
   }
-  return (
-    <OtpStep
-      email={email}
-      maskedEmail={maskedEmail}
-      otpCode={otpCode}
-      setOtpCode={setOtpCode}
-      onVerify={handleVerifyOtp}
-      onResend={handleResend}
-      loading={loading}
-      error={error}
-      finalizeError={finalizeError}
-      onRetryFinalize={finalize}
-    />
-  );
+  if (step === "email") return <EmailVerificationNotice email={email} onContinue={handleVerifyEmail} loading={loading} error={error || (finalizeError ? "Please verify the email link first." : "")} />;
+  return null;
 }

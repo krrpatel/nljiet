@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { api } from "@/api/client";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,10 +41,10 @@ export default function AdminTimetablePage() {
   async function loadData() {
     setLoading(true);
     const [subs, years, mid, gtu] = await Promise.all([
-      base44.entities.Subjects.list(),
-      base44.entities.AcademicYears.list(),
-      base44.entities.MidSemTimetable.list("-exam_date"),
-      base44.entities.GTUTimetable.list("-exam_date"),
+      api.entities.Subjects.list(),
+      api.entities.AcademicYears.list(),
+      api.entities.MidSemTimetable.list("-exam_date"),
+      api.entities.GTUTimetable.list("-exam_date"),
     ]);
     setSubjects(subs);
     setAcademicYears(years);
@@ -75,10 +75,10 @@ export default function AdminTimetablePage() {
       subject_name: subj?.name || "",
     };
     if (editingId) {
-      await base44.entities.MidSemTimetable.update(editingId, payload);
+      await api.entities.MidSemTimetable.update(editingId, payload);
       toast({ title: "Timetable updated" });
     } else {
-      await base44.entities.MidSemTimetable.create(payload);
+      await api.entities.MidSemTimetable.create(payload);
       toast({ title: "Timetable entry added" });
     }
     setMidSemForm({ ...emptyMidSem, academic_year_id: midSemForm.academic_year_id });
@@ -99,10 +99,10 @@ export default function AdminTimetablePage() {
       subject_name: subj?.name || "",
     };
     if (editingId) {
-      await base44.entities.GTUTimetable.update(editingId, payload);
+      await api.entities.GTUTimetable.update(editingId, payload);
       toast({ title: "Timetable updated" });
     } else {
-      await base44.entities.GTUTimetable.create(payload);
+      await api.entities.GTUTimetable.create(payload);
       toast({ title: "GTU timetable entry added" });
     }
     setGtuForm({ ...emptyGTU, academic_year_id: gtuForm.academic_year_id });
@@ -113,25 +113,25 @@ export default function AdminTimetablePage() {
   }
 
   async function toggleMidSemComplete(entry) {
-    await base44.entities.MidSemTimetable.update(entry.id, { is_completed: !entry.is_completed });
+    await api.entities.MidSemTimetable.update(entry.id, { is_completed: !entry.is_completed });
     loadData();
   }
 
   async function deleteMidSem(id) {
-    await base44.entities.MidSemTimetable.delete(id);
+    await api.entities.MidSemTimetable.delete(id);
     loadData();
   }
 
   async function deleteGTU(id) {
-    await base44.entities.GTUTimetable.delete(id);
+    await api.entities.GTUTimetable.delete(id);
     loadData();
   }
 
   async function handleSyllabusUpload(e, entryId) {
     const file = e.target.files[0];
     if (!file) return;
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    await base44.entities.MidSemTimetable.update(entryId, { syllabus_pdf_url: file_url });
+    const { file_url } = await api.integrations.Core.UploadFile({ file });
+    await api.entities.MidSemTimetable.update(entryId, { syllabus_pdf_url: file_url });
     toast({ title: "Syllabus uploaded" });
     loadData();
   }

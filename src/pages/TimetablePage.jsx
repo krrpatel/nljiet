@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 import { usePortal } from "@/lib/portalContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -46,8 +46,8 @@ export default function TimetablePage() {
   async function loadTimetables() {
     setLoading(true);
     const [mid, gtuData] = await Promise.all([
-      base44.entities.MidSemTimetable.filter({ branch: student.branch, semester: student.semester, published: true }, "exam_date"),
-      base44.entities.GTUTimetable.filter({ branch: student.branch, semester: student.semester, published: true }, "exam_date"),
+      api.entities.MidSemTimetable.filter({ branch: student.branch, semester: student.semester, published: true }, "exam_date"),
+      api.entities.GTUTimetable.filter({ branch: student.branch, semester: student.semester, published: true }, "exam_date"),
     ]);
     setMidSem(mid);
     setGtu(gtuData);

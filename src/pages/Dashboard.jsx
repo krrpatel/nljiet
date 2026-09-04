@@ -1,10 +1,9 @@
 import React, { useMemo } from "react";
 import { usePortal } from "@/lib/portalContext";
 import { aggregateAttendanceBySubject, overallAttendance, subjectById } from "@/lib/portalData";
-import { calculateAttendancePlan, DEFAULT_TOTAL_PLANNED, statusLabel } from "@/lib/attendance";
+import { calculateAttendancePlan, DEFAULT_TOTAL_PLANNED } from "@/lib/attendance";
 import StatCard from "@/components/StatCard";
 import PageHeader from "@/components/PageHeader";
-import AttendanceRing from "@/components/AttendanceRing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarCheck, GraduationCap, ClipboardList, Wallet, AlertTriangle, TrendingUp } from "lucide-react";
 import {
@@ -17,15 +16,16 @@ export default function Dashboard() {
 
   const data = useMemo(() => {
     if (!portal || !academic || !student) return null;
-    const { subjects, attSettings } = portal;
-    const targetPct = attSettings[0]?.minimum_percentage || 75;
+    const { subjects, adminSettings } = portal;
+    const configuredTarget = Number(adminSettings[0]?.minimum_attendance_percentage);
+    const targetPct = Number.isFinite(configuredTarget) ? Math.min(100, Math.max(50, configuredTarget)) : 75;
     const agg = aggregateAttendanceBySubject(academic.attendance);
     const overall = overallAttendance(agg);
     const subjectPlans = Object.entries(agg).map(([sid, v]) => {
       const plan = calculateAttendancePlan({ attended: v.attended, conducted: v.conducted, totalPlanned: DEFAULT_TOTAL_PLANNED, targetPct });
       return { subject: subjectById(subjects, sid), plan, conducted: v.conducted, attended: v.attended };
     });
-    const belowMin = subjectPlans.filter((p) => p.plan.status !== "safe").length;
+    const belowMin = subjectPlans.filter((p) => p.plan.currentPct != null && p.plan.currentPct < targetPct).length;
     const publishedResults = academic.results.filter((r) => r.published);
     const latestAvg = publishedResults.length
       ? Math.round((publishedResults.reduce((s, r) => s + (r.marks / r.max_marks) * 100, 0) / publishedResults.length) * 10) / 10
@@ -49,19 +49,22 @@ export default function Dashboard() {
     { name: "Completed", value: data.completed, color: "#10b981" },
     { name: "Pending", value: data.pending, color: "#f59e0b" },
   ];
+  const semester = student.current_semester ?? student.semester ?? "—";
+  const firstName = student.first_name || student.full_name?.split(" ")[0] || "Student";
+  const feeOutstanding = Number(data.fee?.outstanding_amount);
 
   return (
     <div>
-      <PageHeader title={`Welcome, ${student.first_name || student.full_name.split(" ")[0]}`} description={`Semester ${student.current_semester} • ${student.branch} • Division ${student.division}`} />
+      <PageHeader title={`Welcome, ${firstName}`} description={`Semester ${semester} • ${student.branch || "—"}${student.division ? ` • Division ${student.division}` : ""}`} />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Overall Attendance" value={data.overall.percentage == null ? "—" : `${data.overall.percentage}%`} sub={`${data.overall.attended}/${data.overall.conducted} lectures`} icon={CalendarCheck} accent="emerald" />
         <StatCard label="Below Minimum" value={data.belowMin} sub={`Target ${data.targetPct}%`} icon={AlertTriangle} accent={data.belowMin > 0 ? "rose" : "emerald"} />
-        <StatCard label="Current Semester" value={student.current_semester} sub={student.branch} icon={GraduationCap} accent="blue" />
+        <StatCard label="Current Semester" value={semester} sub={student.branch || "—"} icon={GraduationCap} accent="blue" />
         <StatCard label="Latest Avg" value={data.latestAvg == null ? "—" : `${data.latestAvg}%`} sub={`${data.publishedResults.length} results`} icon={TrendingUp} accent="violet" />
         <StatCard label="Pending Assignments" value={data.pending} sub="to complete" icon={ClipboardList} accent="amber" />
         <StatCard label="Completed" value={data.completed} sub="assignments" icon={ClipboardList} accent="emerald" />
-        <StatCard label="Fee Outstanding" value={data.fee ? `₹${data.fee.outstanding_amount.toLocaleString()}` : "—"} sub={data.fee?.emi_enabled ? "EMI enabled" : "—"} icon={Wallet} accent={data.fee?.outstanding_amount > 0 ? "rose" : "emerald"} />
-        <StatCard label="Mentor" value={student.mentor || "—"} sub="academic guide" icon={GraduationCap} accent="primary" />
+        <StatCard label="Fee Outstanding" value={data.fee && Number.isFinite(feeOutstanding) ? `₹${feeOutstanding.toLocaleString("en-IN")}` : "—"} sub={data.fee?.emi_enabled ? "EMI enabled" : "—"} icon={Wallet} accent={feeOutstanding > 0 ? "rose" : "emerald"} />
+        <StatCard label="Mentor" value={student.mentor || academic?.octopodProfile?.MentorName || "—"} sub="academic guide" icon={GraduationCap} accent="primary" />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">

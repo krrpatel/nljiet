@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 import { getCurrentStudent, loadPortalData, loadStudentAcademicData, aggregateAttendanceBySubject, overallAttendance } from "@/lib/portalData";
 
 const PortalContext = createContext(null);
@@ -23,10 +23,11 @@ export function PortalProvider({ children }) {
     setError(null);
     try {
       let me = null;
-      try { me = await base44.auth.me(); } catch {}
+      try { me = await api.auth.me(); } catch {}
       setCurrentUser(me);
 
-      const isAdmin = me?.role === "admin";
+      const configuredAdmins = String(import.meta.env.VITE_ADMIN_EMAILS || "").split(",").map(v => v.trim().toLowerCase()).filter(Boolean);
+      const isAdmin = me?.role === "admin" || me?.user_metadata?.role === "admin" || me?.app_metadata?.role === "admin" || configuredAdmins.includes(String(me?.email || "").toLowerCase());
       setIsMainAdmin(isAdmin);
 
       const s = await getCurrentStudent(me);
@@ -36,7 +37,7 @@ export function PortalProvider({ children }) {
 
       // Check dept admin
       if (!isAdmin && me) {
-        const depts = await base44.entities.Departments.list();
+        const depts = await api.entities.Departments.list();
         const deptAdmin = depts.find(d => (d.admin_user_ids || []).includes(me.id));
         if (deptAdmin) {
           setIsDeptAdmin(true);

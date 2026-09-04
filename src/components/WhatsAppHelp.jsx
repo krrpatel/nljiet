@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { MessageCircle } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 
 // "Need help? Contact Admin" link using the WhatsApp number configured by the
 // admin in Admin Settings — never hardcoded in the frontend.
@@ -9,7 +9,7 @@ export default function WhatsAppHelp({ className }) {
 
   useEffect(() => {
     let cancelled = false;
-    base44.entities.AdminSettings.list()
+    api.entities.AdminSettings.list()
       .then((settings) => { if (!cancelled) setCfg(settings[0] || null); })
       .catch(() => {});
     return () => { cancelled = true; };

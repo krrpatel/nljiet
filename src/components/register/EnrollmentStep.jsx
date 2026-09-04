@@ -6,13 +6,19 @@ import { Loader2, ShieldCheck, Hash } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { Link } from "react-router-dom";
 import { safeReturnTo } from "@/lib/authReturnTo";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const BRANCHES = ["CSE", "DS", "AIML"];
+const DIVISIONS = ["D1", "D2", "DN"];
 
 export default function EnrollmentStep({ onValidated, loading, error }) {
   const [enrollmentNumber, setEnrollmentNumber] = useState("");
+  const [branch, setBranch] = useState("CSE");
+  const [division, setDivision] = useState("D1");
 
   const submit = (e) => {
     e.preventDefault();
-    onValidated(enrollmentNumber.trim());
+    onValidated(enrollmentNumber.trim(), { branch, division });
   };
 
   return (
@@ -49,6 +55,22 @@ export default function EnrollmentStep({ onValidated, loading, error }) {
             className="h-12"
             required
           />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label>Branch</Label>
+            <Select value={branch} onValueChange={setBranch}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{BRANCHES.map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Division</Label>
+            <Select value={division} onValueChange={setDivision}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{DIVISIONS.map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
         </div>
         <Button type="submit" className="w-full h-12 font-medium" disabled={loading || !enrollmentNumber.trim()}>
           {loading ? (

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,10 +25,10 @@ export default function Login() {
     // Enrollment number: resolve the verified account email server-side;
     // fall back to the student records when the backend layer is unavailable.
     try {
-      const res = await base44.functions.invoke("resolveLoginEmail", { enrollmentNumber: trimmed });
+      const res = await api.functions.invoke("resolveLoginEmail", { enrollmentNumber: trimmed });
       return res.data.email;
     } catch {
-      const students = await base44.entities.Students.list();
+      const students = await api.entities.Students.list();
       const match = students.find((s) => s.enrollment_number === trimmed);
       if (!match?.email) throw new Error("not_found");
       return match.email;
@@ -41,10 +41,14 @@ export default function Login() {
     setLoading(true);
     try {
       const email = await resolveEmail(identifier);
-      await base44.auth.loginViaEmailPassword(email, password);
+      await api.auth.loginViaEmailPassword(email, password);
       window.location.href = returnTo;
-    } catch {
-      setError("Invalid credentials. Check your email/enrollment number and password.");
+    } catch (err) {
+      const message = String(err?.message || "");
+      if (/not configured/i.test(message)) setError(message);
+      else if (/not confirmed|confirm your email/i.test(message)) setError("Please verify your email using the link we sent. Check your spam or junk folder.");
+      else if (/invalid login credentials/i.test(message)) setError("Invalid email or password. If you recently registered, verify your email first.");
+      else setError(message || "Login failed. Please try again.");
     } finally {
       setLoading(false);
     }

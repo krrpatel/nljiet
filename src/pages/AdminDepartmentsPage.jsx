@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { api } from "@/api/client";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Users, Loader2, ShieldCheck } from "lucide-react";
+import { Plus, Pencil, Loader2, ShieldCheck } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import PageHeader from "@/components/PageHeader";
 
@@ -22,14 +22,16 @@ export default function AdminDepartmentsPage() {
   const [editingDept, setEditingDept] = useState(null);
   const [form, setForm] = useState({ name: "", code: "", description: "", active: true, admin_user_ids: [] });
   const [addAdminUserId, setAddAdminUserId] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [addingAdmin, setAddingAdmin] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     setLoading(true);
     const [depts, usrs] = await Promise.all([
-      base44.entities.Departments.list(),
-      base44.entities.User.list(),
+      api.entities.Departments.list(),
+      api.functions.invoke("adminUsers", {}).then(result => result.data?.users || []).catch(() => []),
     ]);
     setDepartments(depts);
     setUsers(usrs);
@@ -39,28 +41,35 @@ export default function AdminDepartmentsPage() {
   function openCreate() {
     setEditingDept(null);
     setForm({ name: "", code: "", description: "", active: true, admin_user_ids: [] });
+    setAdminEmail("");
     setDialogOpen(true);
   }
 
   function openEdit(dept) {
     setEditingDept(dept);
     setForm({ name: dept.name, code: dept.code, description: dept.description || "", active: dept.active !== false, admin_user_ids: dept.admin_user_ids || [] });
+    setAdminEmail("");
     setDialogOpen(true);
   }
 
   async function handleSave(e) {
     e.preventDefault();
     setSaving(true);
-    if (editingDept) {
-      await base44.entities.Departments.update(editingDept.id, form);
-      toast({ title: "Department updated" });
-    } else {
-      await base44.entities.Departments.create(form);
-      toast({ title: "Department created" });
+    try {
+      if (editingDept) {
+        await api.entities.Departments.update(editingDept.id, form);
+        toast({ title: "Department updated" });
+      } else {
+        await api.entities.Departments.create(form);
+        toast({ title: "Department created" });
+      }
+      setDialogOpen(false);
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not save department", description: error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setDialogOpen(false);
-    setSaving(false);
-    loadData();
   }
 
   function addAdmin() {
@@ -71,6 +80,25 @@ export default function AdminDepartmentsPage() {
 
   function removeAdmin(uid) {
     setForm(f => ({ ...f, admin_user_ids: f.admin_user_ids.filter(id => id !== uid) }));
+  }
+
+  async function addAdminByEmail() {
+    const email = adminEmail.trim();
+    if (!email) return;
+    setAddingAdmin(true);
+    try {
+      const result = await api.functions.invoke("resolveAdminUser", { email });
+      const user = result.data;
+      if (!user?.id) throw new Error("Supabase Auth did not return a user UUID.");
+      setUsers(current => current.some(existing => existing.id === user.id) ? current : [...current, user]);
+      setForm(current => current.admin_user_ids.includes(user.id) ? current : { ...current, admin_user_ids: [...current.admin_user_ids, user.id] });
+      setAdminEmail("");
+      toast({ title: "Admin mapped", description: `${user.email} (${user.id}) added to this department.` });
+    } catch (error) {
+      toast({ title: "Could not map admin email", description: error.message, variant: "destructive" });
+    } finally {
+      setAddingAdmin(false);
+    }
   }
 
   function getUserName(uid) {
@@ -137,7 +165,12 @@ export default function AdminDepartmentsPage() {
 
             <div className="border rounded-lg p-3 space-y-3">
               <Label className="text-sm font-semibold">Department Admins</Label>
-              <p className="text-xs text-muted-foreground">These users get admin access scoped to this department only.</p>
+              <p className="text-xs text-muted-foreground">Enter the email already registered in Supabase Auth. The server resolves it to the Auth UUID before saving.</p>
+              <div className="flex gap-2">
+                <Input type="email" value={adminEmail} onChange={e => setAdminEmail(e.target.value)} placeholder="admin@example.com" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addAdminByEmail(); } }} />
+                <Button type="button" variant="outline" onClick={addAdminByEmail} disabled={addingAdmin}>{addingAdmin ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add email"}</Button>
+              </div>
+              {users.length > 0 && <p className="text-xs text-muted-foreground">Or select a loaded Auth user:</p>}
               <div className="flex gap-2">
                 <Select value={addAdminUserId} onValueChange={setAddAdminUserId}>
                   <SelectTrigger className="flex-1"><SelectValue placeholder="Select user" /></SelectTrigger>

@@ -1,5 +1,4 @@
 import React from "react";
-import { cn } from "@/lib/utils";
 
 export default function AttendanceRing({ percentage, size = 140, stroke = 12, status = "safe" }) {
   const radius = (size - stroke) / 2;

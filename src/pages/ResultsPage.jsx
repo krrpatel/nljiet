@@ -1,10 +1,9 @@
 import React, { useMemo } from "react";
 import { usePortal } from "@/lib/portalContext";
 import ComingSoonDept from "@/components/ComingSoonDept";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, TrendingUp, Award, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { TrendingUp, Award, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 
@@ -34,26 +33,26 @@ export default function ResultsPage() {
     return map;
   }, [subjects]);
 
-  // Group results by exam_type
+  // Keep the student view focused on the two MSEs. GTU rows are not shown;
+  // re-exam rows remain available when they are uploaded separately.
   const grouped = useMemo(() => {
     const g = {};
     for (const r of results) {
-      if (!g[r.exam_type]) g[r.exam_type] = [];
-      g[r.exam_type].push(r);
+      const type = String(r.exam_type || "").toLowerCase();
+      if (type.includes("gtu")) continue;
+      const key = /midsem1|mse[_ -]?1/.test(type) ? "midsem1" : /midsem2|mse[_ -]?2/.test(type) ? "midsem2" : type.includes("remse") ? "remse" : type;
+      if (!key) continue;
+      if (!g[key]) g[key] = [];
+      g[key].push(r);
     }
     return g;
   }, [results]);
 
-  const examTypes = Object.keys(grouped).sort();
-
-  const midsem1Results = grouped["midsem1_1"] || grouped["midsem1"] || [];
-  const midsem2Results = grouped["midsem2_1"] || grouped["midsem2"] || [];
-
-  // Summary stats for midsem1
-  const ms1Passed = midsem1Results.filter(r => r.marks != null && r.marks >= PASSING_MARKS).length;
-  const ms1Total = midsem1Results.filter(r => r.marks != null).length;
-  const ms1Avg = ms1Total > 0 ? (midsem1Results.filter(r => r.marks != null).reduce((s, r) => s + r.marks, 0) / ms1Total).toFixed(1) : "–";
-  const ms1Max = ms1Total > 0 ? Math.max(...midsem1Results.filter(r => r.marks != null).map(r => r.marks)) : "–";
+  const examTypes = Object.keys(grouped).sort((a, b) => {
+    const order = { midsem1: 1, midsem2: 2, remse: 3 };
+    return (order[a] || 9) - (order[b] || 9);
+  });
+  const visibleResults = examTypes.flatMap(type => grouped[type]);
 
   if (loading) return (
     <div className="space-y-4">
@@ -72,7 +71,7 @@ export default function ResultsPage() {
     </div>
   );
 
-  if (results.length === 0) return (
+  if (visibleResults.length === 0) return (
     <div className="space-y-6">
       <PageHeader title="Results" description="Your academic results" />
       <div className="flex flex-col items-center justify-center py-20 text-center border rounded-xl bg-muted/30">
@@ -90,17 +89,18 @@ export default function ResultsPage() {
       </div>
     );
 
-    const isMidSem = examLabel.toLowerCase().includes("mid");
+    const isMidSem = /mse|mid|remse/i.test(examLabel);
     const passingMarks = isMidSem ? PASSING_MARKS : null;
 
     return (
       <div className="space-y-4">
         {isMidSem && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <StatCard label="Subjects" value={resultList.length} icon={Award} />
-            <StatCard label="Passed" value={`${ms1Passed}/${ms1Total}`} icon={CheckCircle} accent="emerald" />
-            <StatCard label="Average" value={ms1Avg} sub="out of 60" icon={TrendingUp} accent="blue" />
-            <StatCard label="Highest" value={ms1Max} sub="out of 60" icon={Award} accent="violet" />
+            <StatCard label="Total Marks" value={`${resultList.reduce((sum, result) => sum + (Number(result.marks) || 0), 0)}/${60 * resultList.length}`} sub={`60 × ${resultList.length} subjects`} icon={TrendingUp} accent="blue" />
+            <StatCard label="Passed" value={`${resultList.filter(result => result.marks != null && result.marks >= PASSING_MARKS).length}/${resultList.length}`} icon={CheckCircle} accent="emerald" />
+            <StatCard label="Average" value={resultList.filter(result => result.marks != null).length ? (resultList.filter(result => result.marks != null).reduce((sum, result) => sum + Number(result.marks), 0) / resultList.filter(result => result.marks != null).length).toFixed(1) : "–"} sub="out of 60" icon={TrendingUp} accent="blue" />
+            <StatCard label="Highest" value={resultList.some(result => result.marks != null) ? Math.max(...resultList.filter(result => result.marks != null).map(result => Number(result.marks))) : "–"} sub="out of 60" icon={Award} accent="violet" />
           </div>
         )}
 
@@ -148,9 +148,9 @@ export default function ResultsPage() {
   };
 
   const tabLabels = {
-    midsem1: "Mid Sem 1", midsem1_1: "Mid Sem 1",
-    midsem2: "Mid Sem 2", midsem2_1: "Mid Sem 2",
-    gtu: "GTU Exam"
+    midsem1: "MSE 1",
+    midsem2: "MSE 2",
+    remse: "Re-exam / Remedial"
   };
 
   return (

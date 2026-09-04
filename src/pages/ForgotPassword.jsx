@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,14 +15,8 @@ export default function ForgotPassword() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    try {
-      await base44.auth.resetPasswordRequest(email);
-    } catch {
-      // Always show success regardless
-    } finally {
-      setLoading(false);
-      setSent(true);
-    }
+    setLoading(false);
+    setSent(true);
   };
 
   return (
@@ -39,7 +32,7 @@ export default function ForgotPassword() {
     >
       {sent ? (
         <p className="text-sm text-foreground text-center">
-          If an account exists with that email, you'll receive a password reset link shortly.
+          Please contact the administrator on WhatsApp to reset your password. They will verify your account and help you regain access.
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -71,7 +64,7 @@ export default function ForgotPassword() {
             )}
           </Button>
           <p className="text-xs text-muted-foreground mt-3">
-            Use the email associated with your verified student account.
+            Enter the email associated with your account so the administrator can identify you.
           </p>
         </form>
       )}

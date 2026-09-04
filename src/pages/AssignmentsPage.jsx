@@ -1,15 +1,17 @@
 import React, { useMemo, useState } from "react";
 import { usePortal } from "@/lib/portalContext";
 import { subjectById } from "@/lib/portalData";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 import PageHeader from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ClipboardList, CheckCircle2, Clock, AlertCircle, Upload } from "lucide-react";
+import { CheckCircle2, Clock, Upload } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function AssignmentsPage() {
   const { student, portal, academic, refresh } = usePortal();
@@ -19,7 +21,7 @@ export default function AssignmentsPage() {
   const assignments = useMemo(() => {
     if (!portal || !academic) return [];
     return portal.subjects
-      .filter((s) => s.semester === student?.current_semester)
+      .filter((s) => s.semester === (student?.current_semester ?? student?.semester))
       .flatMap((s) => academic.assignments.filter((a) => a.subject_id === s.id && a.published));
   }, [portal, academic, student]);
 
@@ -27,14 +29,18 @@ export default function AssignmentsPage() {
 
   const setStatus = async (assignment, status) => {
     const existing = statusFor(assignment.id);
+    if (!existing && !UUID.test(String(student?.id || ""))) {
+      toast({ title: "Student profile is not linked", description: "Please complete registration again so your Supabase student record can be linked.", variant: "destructive" });
+      return;
+    }
     try {
       if (existing) {
-        await base44.entities.StudentAssignments.update(existing.id, {
+        await api.entities.StudentAssignments.update(existing.id, {
           status,
           completed_at: status === "completed" ? new Date().toISOString() : null,
         });
       } else {
-        await base44.entities.StudentAssignments.create({
+        await api.entities.StudentAssignments.create({
           assignment_id: assignment.id,
           student_id: student.id,
           status,
@@ -51,7 +57,7 @@ export default function AssignmentsPage() {
   const saveNotes = async (assignment) => {
     const existing = statusFor(assignment.id);
     if (!existing) return;
-    await base44.entities.StudentAssignments.update(existing.id, { notes: notes[assignment.id] ?? existing.notes });
+    await api.entities.StudentAssignments.update(existing.id, { notes: notes[assignment.id] ?? existing.notes });
     toast({ title: "Notes saved" });
     refresh();
   };
@@ -106,7 +112,7 @@ export default function AssignmentsPage() {
 
   return (
     <div>
-      <PageHeader title="Assignments" description={`Semester ${student?.current_semester} • ${assignments.length} total`} />
+      <PageHeader title="Assignments" description={`Semester ${student?.current_semester ?? student?.semester} • ${assignments.length} total`} />
       <Tabs defaultValue="pending">
         <TabsList>
           <TabsTrigger value="pending">Pending ({pending.length})</TabsTrigger>

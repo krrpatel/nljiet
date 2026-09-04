@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/client";
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -16,6 +16,7 @@ import {
   Calendar,
   Building2,
   CalendarDays,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -33,8 +34,14 @@ const STUDENT_NAV = [
 
 const ADMIN_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/attendance", label: "Attendance", icon: CalendarCheck },
+  { to: "/results", label: "Results", icon: GraduationCap },
+  { to: "/fees", label: "Fees", icon: Wallet },
+  { to: "/profile", label: "Profile", icon: User },
+  { to: "/timetable", label: "Timetable", icon: CalendarDays },
   { to: "/admin", label: "Settings", icon: Settings },
   { to: "/admin/departments", label: "Departments", icon: Building2 },
+  { to: "/admin/academic-data", label: "Subjects & Years", icon: BookOpen },
   { to: "/admin/timetable", label: "Timetable", icon: Calendar },
   { to: "/admin/upload", label: "Upload Data", icon: Upload },
 ];
@@ -48,7 +55,7 @@ function Shell() {
   const isAnyAdmin = isMainAdmin || isDeptAdmin;
 
   const handleLogout = async () => {
-    await base44.auth.logout();
+    await api.auth.logout();
     navigate("/login");
   };
 
