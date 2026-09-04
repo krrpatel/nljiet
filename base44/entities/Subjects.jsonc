@@ -1,0 +1,34 @@
+{
+  "name": "Subjects",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "abbreviation": {
+      "type": "string"
+    },
+    "semester": {
+      "type": "integer"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "name",
+    "abbreviation",
+    "semester",
+    "branch"
+  ]
+}
