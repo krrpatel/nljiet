@@ -89,7 +89,7 @@ export default function AssignmentsPage() {
     let uploadedUrl = null;
     try {
       const existing = statusFor(assignment.id);
-      uploadedUrl = (await api.integrations.Core.UploadFile({ file })).file_url;
+      uploadedUrl = (await api.integrations.Core.UploadFile({ file, folder: "assignment-solutions" })).file_url;
       const payload = {
         assignment_id: assignment.id,
         student_id: student.id,
@@ -167,6 +167,7 @@ export default function AssignmentsPage() {
             <Button size="sm" variant="outline" onClick={() => setStatus(assignment, "pending")}><Clock className="mr-1.5 h-4 w-4" />Not Done</Button>
             {!solutionLink && <label className="cursor-pointer"><Button size="sm" variant="outline" asChild disabled={uploadingId === assignment.id}><span>{uploadingId === assignment.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{uploadingId === assignment.id ? "Uploading…" : "Upload Solution"}</span></Button><input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; uploadSolution(assignment, file); }} /></label>}
           </div>}
+          {isAdmin && !solutionLink && <Button size="sm" variant="outline" asChild><Link to="/admin/assignments"><Upload className="mr-1.5 h-4 w-4" />Upload Solution</Link></Button>}
         </CardContent>
       </Card>
     );

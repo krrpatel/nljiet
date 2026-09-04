@@ -24,7 +24,7 @@ const normalizeDbPayload = (table, payload) => {
   for (const field of ["start_time", "end_time"]) if (field in normalized && (normalized[field] === "" || normalized[field] === undefined)) normalized[field] = null;
   return normalized;
 };
-const legacyTimetableTables = new Set(["mid_sem_timetable", "gtu_timetable"]);
+const legacyTimetableTables = new Set(["mid_sem_timetable", "gtu_timetable", "timetable_syllabi"]);
 const localEntityRows = (items, filters, sort, limit) => {
   let rows = items.filter(item => Object.entries(filters).every(([key, value]) => String(item[key] ?? "") === String(value ?? "")));
   if (sort) {
@@ -186,16 +186,50 @@ const requestHandler = async (req, res) => {
         return json(res, 200, { id: user.id, email: user.email, full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email });
       } catch (e) { console.error("Supabase Auth user resolution failed:", e.message); return json(res, 503, { error: "Supabase Auth admin access is not configured on the server" }); }
     }
+    if (parts[0]==="api" && parts[1]==="uploads" && parts[2]==="delete-all" && req.method==="POST") {
+      const { folder } = await body(req);
+      const sourceFolders = new Set(["attendance-sources", "result-sources"]);
+      if (!sourceFolders.has(folder)) return json(res, 400, { error: "Invalid source folder" });
+      if (supabaseUrl && supabaseKey) {
+        const headers = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" };
+        const objects = [];
+        for (let offset = 0; offset < 10000; offset += 1000) {
+          const response = await fetch(`${supabaseUrl}/storage/v1/object/list/portal-files`, { method: "POST", headers, body: JSON.stringify({ prefix: folder, limit: 1000, offset, sortBy: { column: "name", order: "asc" } }) });
+          const page = await response.json().catch(() => []);
+          if (!response.ok) return json(res, 502, { error: "Could not list source files" });
+          const rows = Array.isArray(page) ? page : [];
+          objects.push(...rows.filter(object => object.name && !object.name.endsWith("/")));
+          if (rows.length < 1000) break;
+        }
+        const outcomes = await Promise.all(objects.map(async object => {
+          const objectName = String(object.name).startsWith(`${folder}/`) ? String(object.name) : `${folder}/${object.name}`;
+          const response = await fetch(`${supabaseUrl}/storage/v1/object/portal-files/${objectName.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE", headers });
+          return response.ok || response.status === 404;
+        }));
+        return json(res, 200, { removed: outcomes.filter(Boolean).length, failed: outcomes.filter(ok => !ok).length });
+      }
+      const folderPath = path.join(uploadDir, folder);
+      const countFiles = target => {
+        if (!fs.existsSync(target)) return 0;
+        return fs.readdirSync(target, { withFileTypes: true }).reduce((count, entry) => count + (entry.isDirectory() ? countFiles(path.join(target, entry.name)) : 1), 0);
+      };
+      const removed = countFiles(folderPath);
+      fs.rmSync(folderPath, { recursive: true, force: true });
+      return json(res, 200, { removed, failed: 0 });
+    }
     if (parts[0]==="api" && parts[1]==="uploads" && req.method==="POST") {
-      const { name, type, data } = await body(req); if (!data || !name) return json(res,400,{error:"Invalid upload"});
+      const { name, type, data, folder } = await body(req); if (!data || !name) return json(res,400,{error:"Invalid upload"});
       const safeName = `${id()}-${String(name).replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-      if (supabaseUrl && supabaseKey) { const response=await fetch(`${supabaseUrl}/storage/v1/object/portal-files/${encodeURIComponent(safeName)}`,{method:"POST",headers:{apikey:supabaseKey,Authorization:`Bearer ${supabaseKey}`,"Content-Type":type||"application/pdf"},body:Buffer.from(data,"base64")}); if(!response.ok)return json(res,502,{error:"File storage upload failed"}); return json(res,201,{file_url:`${supabaseUrl}/storage/v1/object/public/portal-files/${encodeURIComponent(safeName)}`}); }
-      fs.writeFileSync(path.join(uploadDir,safeName),Buffer.from(data,"base64")); return json(res,201,{file_url:`/uploads/${safeName}`});
+      const safeFolder = ["attendance-sources", "result-sources", "assignment-solutions", "timetable-syllabi"].includes(folder) ? folder : "";
+      const objectName = safeFolder ? `${safeFolder}/${safeName}` : safeName;
+      const encodedObjectName = objectName.split("/").map(encodeURIComponent).join("/");
+      if (supabaseUrl && supabaseKey) { const response=await fetch(`${supabaseUrl}/storage/v1/object/portal-files/${encodedObjectName}`,{method:"POST",headers:{apikey:supabaseKey,Authorization:`Bearer ${supabaseKey}`,"Content-Type":type||"application/pdf"},body:Buffer.from(data,"base64")}); if(!response.ok)return json(res,502,{error:"File storage upload failed"}); return json(res,201,{file_url:`${supabaseUrl}/storage/v1/object/public/portal-files/${encodedObjectName}`}); }
+      const localTarget = path.join(uploadDir, ...objectName.split("/")); fs.mkdirSync(path.dirname(localTarget), { recursive: true }); fs.writeFileSync(localTarget,Buffer.from(data,"base64")); return json(res,201,{file_url:`/uploads/${objectName}`});
     }
     if (parts[0]==="api" && parts[1]==="uploads" && parts[2]==="delete" && req.method==="POST") {
       const { url } = await body(req); if (!url) return json(res,400,{error:"Missing file URL"});
-      if (supabaseUrl && supabaseKey && url.includes("/storage/v1/object/public/portal-files/")) { const objectName=decodeURIComponent(url.split("/storage/v1/object/public/portal-files/")[1]); const response=await fetch(`${supabaseUrl}/storage/v1/object/portal-files/${encodeURIComponent(objectName)}`,{method:"DELETE",headers:{apikey:supabaseKey,Authorization:`Bearer ${supabaseKey}`}}); if(!response.ok && response.status!==404)return json(res,502,{error:"File delete failed"}); }
-      else if (url.startsWith("/uploads/")) { const target=path.join(uploadDir,path.basename(url)); if(fs.existsSync(target))fs.unlinkSync(target); }
+      if (supabaseUrl && supabaseKey && url.includes("/storage/v1/object/public/portal-files/")) { const objectName=decodeURIComponent(url.split("/storage/v1/object/public/portal-files/")[1]); const encodedObjectName=objectName.split("/").map(encodeURIComponent).join("/"); const response=await fetch(`${supabaseUrl}/storage/v1/object/portal-files/${encodedObjectName}`,{method:"DELETE",headers:{apikey:supabaseKey,Authorization:`Bearer ${supabaseKey}`}}); if(!response.ok && response.status!==404)return json(res,502,{error:"File delete failed"}); }
+      else if (url.startsWith("/uploads/")) { const relativePath=decodeURIComponent(url.slice("/uploads/".length)).replace(/^[/\\]+/,""); const target=path.resolve(uploadDir, ...relativePath.split(/[\\/]+/)); const safeRoot=path.resolve(uploadDir); if(target===safeRoot || !target.startsWith(`${safeRoot}${path.sep}`))return json(res,400,{error:"Invalid file URL"}); if(fs.existsSync(target))fs.unlinkSync(target); }
       return json(res,200,{success:true});
     }
     if (parts[0]==="api" && parts[1]==="functions" && parts[2]==="llm") {

@@ -92,14 +92,12 @@ export default function AdminUploadPage() {
     const uploads = isAttendance ? attendanceUploads : resultUploads;
     const urls = [...new Set(uploads.map(upload => upload.pdf_url).filter(Boolean))];
     const label = isAttendance ? "attendance" : "result";
-    if (!urls.length) {
-      toast({ title: `No stored ${label} PDFs found`, description: "Imported attendance/results will remain unchanged." });
-      return;
-    }
-    if (!window.confirm(`Delete ${urls.length} stored ${label} PDF${urls.length === 1 ? "" : "s"}? Parsed records and upload history will remain.`)) return;
+    const folder = isAttendance ? "attendance-sources" : "result-sources";
+    if (!window.confirm(`Delete all stored ${label} source PDFs? Parsed records and upload history will remain. Assignment solution files will not be touched.`)) return;
 
     setDeletingFiles(kind);
     try {
+      const folderCleanup = await api.integrations.Core.DeleteFilesByFolder({ folder });
       const outcomes = await Promise.all(urls.map(async url => {
         try {
           await api.integrations.Core.DeleteFile(url);
@@ -112,8 +110,12 @@ export default function AdminUploadPage() {
       const rows = uploads.filter(upload => deletedUrls.has(upload.pdf_url));
       const entity = isAttendance ? api.entities.AttendanceUploads : api.entities.ResultUploads;
       const metadataUpdates = await Promise.all(rows.map(upload => entity.update(upload.id, { pdf_url: null }).then(() => true).catch(() => false)));
-      const removed = outcomes.filter(outcome => outcome.ok).length;
-      const failed = outcomes.filter(outcome => !outcome.ok).length + metadataUpdates.filter(updated => !updated).length;
+      const removed = Number(folderCleanup.removed || 0) + outcomes.filter(outcome => outcome.ok).length;
+      const failed = Number(folderCleanup.failed || 0) + outcomes.filter(outcome => !outcome.ok).length + metadataUpdates.filter(updated => !updated).length;
+      if (removed === 0 && failed === 0) {
+        toast({ title: `No stored ${label} PDFs found`, description: "Parsed records and upload history were unchanged." });
+        return;
+      }
       toast({
         title: failed ? `${label[0].toUpperCase() + label.slice(1)} PDF cleanup partially completed` : `${label[0].toUpperCase() + label.slice(1)} PDFs deleted`,
         description: `${removed} file${removed === 1 ? "" : "s"} removed. Parsed records and history were kept.`,
@@ -170,7 +172,7 @@ export default function AdminUploadPage() {
       }
     }
     if (!records.length) throw new Error("No valid conducted/attended lecture counts were found in this PDF. Percentage columns are ignored; check the department, semester, and PDF format.");
-    uploadedFileUrl = (await api.integrations.Core.UploadFile({ file: attForm.file })).file_url;
+    uploadedFileUrl = (await api.integrations.Core.UploadFile({ file: attForm.file, folder: "attendance-sources" })).file_url;
 
     // The live attendance table has no branch column. Resolve all registered
     // enrollments for this department first, then replace only this branch's
@@ -236,7 +238,7 @@ export default function AdminUploadPage() {
       if (!students.length) throw new Error("No result rows were found in this PDF. Check the subject and choose the original text-based PDF.");
 
       const oldUploads = await api.entities.ResultUploads.filter({ branch: resForm.branch, semester, subject_id: resForm.subject_id, exam_type: examLabel }).catch(() => []);
-      uploadedFileUrl = (await api.integrations.Core.UploadFile({ file: resForm.file })).file_url;
+      uploadedFileUrl = (await api.integrations.Core.UploadFile({ file: resForm.file, folder: "result-sources" })).file_url;
       const records = students.map(s => ({
         enrollment_number: s.enrollment_number,
         subject_id: resForm.subject_id,

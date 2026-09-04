@@ -177,7 +177,7 @@ export default function AdminTimetablePage() {
     try {
       const academicYearId = academicYears.find(year => year.is_current)?.id || null;
       const existing = syllabi.find(row => row.branch === filterBranch && Number(row.semester) === Number(filterSem) && Number(row.exam_number) === Number(syllabusExamNumber) && String(row.academic_year_id || "") === String(academicYearId || ""));
-      uploadedUrl = (await api.integrations.Core.UploadFile({ file })).file_url;
+      uploadedUrl = (await api.integrations.Core.UploadFile({ file, folder: "timetable-syllabi" })).file_url;
       const payload = { branch: filterBranch, semester: Number(filterSem), exam_number: Number(syllabusExamNumber), academic_year_id: academicYearId, pdf_url: uploadedUrl, updated_at: new Date().toISOString() };
       if (existing?.id) await api.entities.TimetableSyllabi.update(existing.id, payload);
       else await api.entities.TimetableSyllabi.create(payload);

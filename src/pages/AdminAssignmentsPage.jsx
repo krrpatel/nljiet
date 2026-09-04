@@ -95,7 +95,7 @@ export default function AdminAssignmentsPage() {
     let saved = false;
     try {
       const previous = editingId ? assignments.find(assignment => assignment.id === editingId) : null;
-      if (solutionFile) uploadedSolutionUrl = (await api.integrations.Core.UploadFile({ file: solutionFile })).file_url;
+      if (solutionFile) uploadedSolutionUrl = (await api.integrations.Core.UploadFile({ file: solutionFile, folder: "assignment-solutions" })).file_url;
       const payload = {
         subject_id: form.subject_id,
         branch: form.branch,
