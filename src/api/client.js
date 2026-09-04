@@ -121,7 +121,8 @@ export const api = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url }),
         });
-        if (!response.ok) throw new Error('File delete failed');
+        const output = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(output.error || `File delete failed (${response.status})`);
       },
       DeleteFilesByFolder: async ({ folder }) => {
         const response = await fetch('/api/uploads/delete-all', {

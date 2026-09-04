@@ -192,26 +192,30 @@ export default function AdminUploadPage() {
       imported += Math.min(BATCH, records.length - i);
     }
 
-    await api.entities.AttendanceUploads.create({
+    const attendanceUpload = await api.entities.AttendanceUploads.create({
       branch: attForm.branch,
       semester,
       academic_year_id: attForm.academic_year_id || null,
       week_label: `Import ${new Date().toLocaleDateString()}`,
       week_start: null,
       week_end: null,
-      pdf_url: null,
+      pdf_url: uploadedFileUrl,
       status: "done",
       records_imported: imported,
       processed_at: new Date().toISOString()
     });
 
     // PDFs are processing inputs, not permanent student documents. Keep only
-    // import metadata after the rows are safely stored in Supabase.
-    await api.integrations.Core.DeleteFile(uploadedFileUrl);
+    // import metadata after the rows are safely stored in Supabase. A storage
+    // cleanup failure must not turn a completed import into a false failure.
+    const attendanceUploadRow = Array.isArray(attendanceUpload) ? attendanceUpload[0] : attendanceUpload;
+    let sourceCleanupError = null;
+    try { await api.integrations.Core.DeleteFile(uploadedFileUrl); } catch (error) { sourceCleanupError = error; console.warn("Attendance source PDF cleanup failed:", error.message); }
     uploadedFileUrl = null;
+    if (!sourceCleanupError && attendanceUploadRow?.id) await api.entities.AttendanceUploads.update(attendanceUploadRow.id, { pdf_url: null }).catch(error => console.warn("Attendance upload metadata cleanup failed:", error.message));
     await Promise.all(oldUploads.filter(upload => upload.pdf_url).map(upload => api.integrations.Core.DeleteFile(upload.pdf_url).catch(() => {})));
 
-    toast({ title: `Attendance imported: ${imported} records` });
+    toast({ title: `Attendance imported: ${imported} records`, description: sourceCleanupError ? "The records were saved, but the source PDF could not be deleted. Use Delete all PDFs to retry cleanup." : undefined });
     setAttForm(f => ({ ...f, file: null, week_label: "", week_start: "", week_end: "" }));
     await loadData();
     } catch (err) {
@@ -264,25 +268,30 @@ export default function AdminUploadPage() {
         isRemse
       });
 
-      await api.entities.ResultUploads.create({
+      const resultUpload = await api.entities.ResultUploads.create({
         branch: resForm.branch,
         semester,
         academic_year_id: resForm.academic_year_id || null,
         subject_id: resForm.subject_id,
         subject_code: subject.code,
         exam_type: examLabel,
-        pdf_url: null,
+        pdf_url: uploadedFileUrl,
         status: "done",
         records_imported: imported,
         processed_at: new Date().toISOString()
       });
 
       // Keep only metadata; the source PDF is deleted after all rows are saved.
-      await api.integrations.Core.DeleteFile(uploadedFileUrl);
+      // A storage cleanup failure must not turn a completed import into a
+      // false failure. The URL remains in history so cleanup can be retried.
+      const resultUploadRow = Array.isArray(resultUpload) ? resultUpload[0] : resultUpload;
+      let sourceCleanupError = null;
+      try { await api.integrations.Core.DeleteFile(uploadedFileUrl); } catch (error) { sourceCleanupError = error; console.warn("Result source PDF cleanup failed:", error.message); }
       uploadedFileUrl = null;
+      if (!sourceCleanupError && resultUploadRow?.id) await api.entities.ResultUploads.update(resultUploadRow.id, { pdf_url: null }).catch(error => console.warn("Result upload metadata cleanup failed:", error.message));
       await Promise.all(oldUploads.filter(upload => upload.pdf_url).map(upload => api.integrations.Core.DeleteFile(upload.pdf_url).catch(() => {})));
 
-      toast({ title: `${isRemse ? "Re-exam" : "Results"} imported: ${imported} records` });
+      toast({ title: `${isRemse ? "Re-exam" : "Results"} imported: ${imported} records`, description: sourceCleanupError ? "The records were saved, but the source PDF could not be deleted. Use Delete all PDFs to retry cleanup." : undefined });
       setResForm(f => ({ ...f, file: null }));
       await loadData();
     } catch (err) {
