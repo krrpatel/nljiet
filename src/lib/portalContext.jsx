@@ -4,8 +4,10 @@ import { getCurrentStudent, loadPortalData, loadStudentAcademicData, aggregateAt
 
 const PortalContext = createContext(null);
 
-// Departments that have live data
-const LIVE_DEPARTMENTS = ["CSE"];
+// All supported departments use the same Supabase-backed result and
+// attendance pipeline. Availability is based on the student's data, not a
+// hard-coded CSE-only gate.
+const LIVE_DEPARTMENTS = ["CSE", "AIML", "DS"];
 
 export function PortalProvider({ children }) {
   const [student, setStudent] = useState(null);
@@ -71,7 +73,7 @@ export function PortalProvider({ children }) {
   const attendanceAgg = aggregateAttendanceBySubject(attendance);
   const overallAtt = overallAttendance(attendanceAgg);
   const studentBranch = student?.branch || "";
-  const isDeptLive = !studentBranch || LIVE_DEPARTMENTS.includes(studentBranch);
+  const isDeptLive = !studentBranch || LIVE_DEPARTMENTS.includes(String(studentBranch).trim().toUpperCase());
 
   return (
     <PortalContext.Provider value={{
