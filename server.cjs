@@ -1,11 +1,14 @@
 require("dotenv").config();
 const http = require("http"), fs = require("fs"), path = require("path"), crypto = require("crypto");
-const root = __dirname, dataDir = path.join(root, "data"), uploadDir = path.join(root, "uploads");
+const root = __dirname, runtimeDir = process.env.VERCEL ? path.join("/tmp", "student-portal") : root, dataDir = path.join(runtimeDir, "data"), uploadDir = path.join(runtimeDir, "uploads");
 fs.mkdirSync(dataDir, { recursive: true }); fs.mkdirSync(uploadDir, { recursive: true });
 const read = n => { const f = path.join(dataDir, `${n}.json`); try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return []; } };
 const write = (n, v) => fs.writeFileSync(path.join(dataDir, `${n}.json`), JSON.stringify(v, null, 2));
 const json = (res, code, value) => { res.writeHead(code, { "Content-Type": "application/json", "Access-Control-Allow-Origin": process.env.CLIENT_ORIGIN || "*", "Access-Control-Allow-Headers": "Content-Type, Authorization" }); res.end(JSON.stringify(value)); };
-const body = req => new Promise(resolve => { let b=""; req.on("data", x => b += x); req.on("end", () => { try { resolve(JSON.parse(b || "{}")); } catch { resolve({}); } }); });
+const body = req => {
+  if (req.body && typeof req.body === "object") return Promise.resolve(req.body);
+  return new Promise(resolve => { let b=""; req.on("data", x => b += x); req.on("end", () => { try { resolve(JSON.parse(b || "{}")); } catch { resolve({}); } }); });
+};
 const id = () => crypto.randomUUID();
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -85,7 +88,7 @@ async function octopodValidate(enrollmentNumber) {
   const semester = Number(sourceSemester) > 0 ? Number(sourceSemester) : Math.max(1, academicYears.length || 1);
   return { ...profile, academicYears, currentYear: profile?.currentYear || currentAcademicYearId, semester, StudentID:first(student,["StudentID","studentId"]), AcademyID:first(student,["AcademyID","academyId"]), MediumID:first(student,["MediumID","mediumId"]), StandardID:first(student,["StandardID","standardId"]), DivisionID:first(student,["DivisionID","divisionId"]), AcademicYearID:currentAcademicYearId, fullName:first(student,["StudentFullName","fullName","name"]) || "", email, maskedEmail };
 }
-const server = http.createServer(async (req, res) => {
+const requestHandler = async (req, res) => {
   if (req.method === "OPTIONS") return json(res, 204, {});
   const u = new URL(req.url, "http://localhost"), parts = u.pathname.split("/").filter(Boolean);
   try {
@@ -188,5 +191,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET") { const file = u.pathname === "/" ? "/index.html" : u.pathname; const base = file.startsWith("/uploads/") ? uploadDir : path.join(root, "dist"); const target = path.join(base, file.replace(/^\/uploads\//, "")); if (fs.existsSync(target) && fs.statSync(target).isFile()) { res.writeHead(200); return fs.createReadStream(target).pipe(res); } }
     return json(res,404,{error:"Not found"});
   } catch(e) { console.error(e); json(res,500,{error:"Server error"}); }
-});
-const port=process.env.PORT||3001; server.listen(port,()=>console.log(`API listening on ${port}`));
+};
+const server = http.createServer(requestHandler);
+if (require.main === module) {
+  const port=process.env.PORT||3001;
+  server.listen(port,()=>console.log(`API listening on ${port}`));
+}
+module.exports = requestHandler;
