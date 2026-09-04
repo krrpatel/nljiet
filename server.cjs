@@ -12,7 +12,7 @@ const body = req => {
 const id = () => crypto.randomUUID();
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-const allowedTables = new Set(["students","subjects","academic_years","attendance","results","assignments","student_assignments","departments","admin_settings","attendance_settings","fee_status","fee_receipts","attendance_uploads","result_uploads","mid_sem_timetable","gtu_timetable"]);
+const allowedTables = new Set(["students","subjects","academic_years","attendance","results","assignments","student_assignments","departments","admin_settings","attendance_settings","fee_status","fee_receipts","attendance_uploads","result_uploads","mid_sem_timetable","gtu_timetable","timetable_syllabi"]);
 const uuidFields = new Set(["id", "student_id", "subject_id", "academic_year_id", "assignment_id", "updated_by", "uploaded_by"]);
 const normalizeDbPayload = (table, payload) => {
   if (Array.isArray(payload)) return payload.map(row => normalizeDbPayload(table, row));

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { usePortal } from "@/lib/portalContext";
 import { subjectById } from "@/lib/portalData";
 import { api } from "@/api/client";
@@ -15,17 +16,21 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const MAX_SOLUTION_SIZE = 10 * 1024 * 1024;
 
 export default function AssignmentsPage() {
-  const { student, portal, academic, refresh } = usePortal();
+  const { student, portal, academic, refresh, isMainAdmin, isDeptAdmin, deptAdminBranch } = usePortal();
   const { toast } = useToast();
   const [notes, setNotes] = useState({});
   const [uploadingId, setUploadingId] = useState(null);
+  const isAdmin = isMainAdmin || isDeptAdmin;
 
   const assignments = useMemo(() => {
     if (!portal || !academic) return [];
+    if (isAdmin) {
+      return academic.assignments.filter((assignment) => assignment.published && (!deptAdminBranch || String(assignment.branch || "").toUpperCase() === String(deptAdminBranch).toUpperCase()));
+    }
     return portal.subjects
       .filter((s) => s.semester === Number(student?.current_semester ?? student?.semester) && (!student?.branch || String(s.branch || "").toUpperCase() === String(student.branch).toUpperCase()))
       .flatMap((s) => academic.assignments.filter((a) => a.subject_id === s.id && a.published));
-  }, [portal, academic, student]);
+  }, [portal, academic, student, isAdmin, deptAdminBranch]);
 
   const approvedSolutions = useMemo(
     () => (academic?.approvedSolutions || []).filter((solution) => solution.solution_pdf_url && solution.solution_status === "approved"),
@@ -140,13 +145,13 @@ export default function AssignmentsPage() {
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div><CardTitle className="text-base">{assignment.title}</CardTitle><p className="mt-0.5 text-xs text-muted-foreground">{subj?.name} • Assignment #{assignment.assignment_number}</p></div>
-            <StatusBadge status={status} overdue={overdue} />
+            {isAdmin ? <Badge variant="secondary">Published</Badge> : <StatusBadge status={status} overdue={overdue} />}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {assignment.description && <p className="text-sm text-muted-foreground">{assignment.description}</p>}
           {deadline && <p className="text-xs text-muted-foreground">Due: {deadline.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</p>}
-          <Textarea placeholder="Add a note..." value={notes[assignment.id] ?? submission?.notes ?? ""} onChange={(e) => setNotes((n) => ({ ...n, [assignment.id]: e.target.value }))} onBlur={() => saveNotes(assignment)} className="min-h-[60px]" />
+          {!isAdmin && <Textarea placeholder="Add a note..." value={notes[assignment.id] ?? submission?.notes ?? ""} onChange={(e) => setNotes((n) => ({ ...n, [assignment.id]: e.target.value }))} onBlur={() => saveNotes(assignment)} className="min-h-[60px]" />}
           {solutionLink ? (
             <a className="inline-flex items-center gap-1.5 text-sm text-primary underline" href={solutionLink} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" />View solution</a>
           ) : (
@@ -157,11 +162,11 @@ export default function AssignmentsPage() {
               {renderApprovedSolutions(assignment)}
             </>
           )}
-          <div className="flex flex-wrap gap-2">
+          {!isAdmin && <div className="flex flex-wrap gap-2">
             <Button size="sm" variant={status === "completed" ? "default" : "outline"} onClick={() => setStatus(assignment, "completed")}><CheckCircle2 className="mr-1.5 h-4 w-4" />Mark Done</Button>
             <Button size="sm" variant="outline" onClick={() => setStatus(assignment, "pending")}><Clock className="mr-1.5 h-4 w-4" />Not Done</Button>
             {!solutionLink && <label className="cursor-pointer"><Button size="sm" variant="outline" asChild disabled={uploadingId === assignment.id}><span>{uploadingId === assignment.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{uploadingId === assignment.id ? "Uploading…" : "Upload Solution"}</span></Button><input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; uploadSolution(assignment, file); }} /></label>}
-          </div>
+          </div>}
         </CardContent>
       </Card>
     );
@@ -175,13 +180,13 @@ export default function AssignmentsPage() {
 
   return (
     <div>
-      <PageHeader title="Assignments" description={`Semester ${student?.current_semester ?? student?.semester} • ${assignments.length} total`} />
-      <Tabs defaultValue="pending">
+      <PageHeader title="Assignments" description={isAdmin ? `${assignments.length} published assignments • view-only portal` : `Semester ${student?.current_semester ?? student?.semester} • ${assignments.length} total`} action={isAdmin ? <Button asChild size="sm" variant="outline"><Link to="/admin/assignments">Assignment Edit</Link></Button> : null} />
+      {isAdmin ? <div className="grid gap-4 md:grid-cols-2">{assignments.map(renderCard)}</div> : <Tabs defaultValue="pending">
         <TabsList><TabsTrigger value="pending">Pending ({pending.length})</TabsTrigger><TabsTrigger value="completed">Completed ({completed.length})</TabsTrigger><TabsTrigger value="overdue">Overdue ({overdue.length})</TabsTrigger></TabsList>
         <TabsContent value="pending" className="mt-4 grid gap-4 md:grid-cols-2">{pending.map(renderCard)}</TabsContent>
         <TabsContent value="completed" className="mt-4 grid gap-4 md:grid-cols-2">{completed.map(renderCard)}</TabsContent>
         <TabsContent value="overdue" className="mt-4 grid gap-4 md:grid-cols-2">{overdue.map(renderCard)}</TabsContent>
-      </Tabs>
+      </Tabs>}
       {assignments.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">No assignments for your semester yet.</p>}
     </div>
   );

@@ -3,21 +3,18 @@ import { api } from "@/api/client";
 import EnrollmentStep from "@/components/register/EnrollmentStep";
 import EmailPreviewStep from "@/components/register/EmailPreviewStep";
 import ConfirmEmailStep from "@/components/register/ConfirmEmailStep";
-import EmailVerificationNotice from "@/components/register/EmailVerificationNotice";
 import { safeReturnTo } from "@/lib/authReturnTo";
 
 // Registration flow: enrollment number -> Octopod validation (server-side) ->
 // masked verified-email preview -> student re-enters the same email -> email
-// Supabase email-link verification -> account created -> verified mapping stored -> dashboard.
+// and password -> direct Supabase account creation -> verified mapping stored -> dashboard.
 export default function Register() {
   const [step, setStep] = useState("enrollment");
   const [enrollmentNumber, setEnrollmentNumber] = useState("");
   const [maskedEmail, setMaskedEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [finalizeError, setFinalizeError] = useState(false);
   const [validatedProfile, setValidatedProfile] = useState(null);
   const [registrationDetails, setRegistrationDetails] = useState({ branch: "CSE", division: "D1" });
 
@@ -62,9 +59,12 @@ export default function Register() {
         enteredEmail,
       });
       const confirmedEmail = res.data.email;
-      setEmail(confirmedEmail);
-      await api.auth.register({ email: confirmedEmail, password, enrollmentNumber });
-      setStep("email");
+      const registration = await api.auth.register({ email: confirmedEmail, password, enrollmentNumber });
+      if (!registration?.session) {
+        throw new Error("Direct registration is not enabled. Turn off Supabase Auth → Email → Confirm email, then try again.");
+      }
+      await api.functions.invoke("octopodCompleteRegistration", { enrollmentNumber, email: confirmedEmail, profile: { ...validatedProfile, ...registrationDetails } });
+      window.location.href = safeReturnTo();
     } catch (err) {
       const code = err?.response?.data?.error;
       if (code === "email_mismatch") {
@@ -78,29 +78,6 @@ export default function Register() {
       } else {
         setError(err?.message || "Could not continue. Please try again.");
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const finalize = async () => {
-    try {
-      await api.functions.invoke("octopodCompleteRegistration", { enrollmentNumber, email, profile: { ...validatedProfile, ...registrationDetails } });
-      window.location.href = safeReturnTo();
-    } catch {
-      setFinalizeError(true);
-    }
-  };
-
-  const handleVerifyEmail = async () => {
-    setError("");
-    setFinalizeError(false);
-    setLoading(true);
-    try {
-      await api.auth.me();
-      await finalize();
-    } catch (err) {
-      setError(err?.message || "Invalid verification code");
     } finally {
       setLoading(false);
     }
@@ -122,6 +99,5 @@ export default function Register() {
   if (step === "confirm") {
     return <ConfirmEmailStep maskedEmail={maskedEmail} onSubmit={handleConfirm} loading={loading} error={error} />;
   }
-  if (step === "email") return <EmailVerificationNotice email={email} onContinue={handleVerifyEmail} loading={loading} error={error || (finalizeError ? "Please verify the email link first." : "")} />;
   return null;
 }

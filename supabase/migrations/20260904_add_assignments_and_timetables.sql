@@ -44,8 +44,22 @@ create table if not exists public.gtu_timetable (
   venue text,
   subject_code text,
   subject_name text,
+  is_completed boolean default false,
   published boolean default true,
   created_at timestamptz default now()
+);
+
+alter table public.gtu_timetable add column if not exists is_completed boolean default false;
+
+create table if not exists public.timetable_syllabi (
+  id uuid primary key default gen_random_uuid(),
+  branch text not null,
+  semester int not null,
+  exam_number int not null,
+  academic_year_id uuid,
+  pdf_url text not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 insert into storage.buckets (id, name, public)

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, FileText, CheckCircle, AlertCircle, Clock, Loader2 } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, Clock, Loader2, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import PageHeader from "@/components/PageHeader";
 import { parseAttendancePdf, parseResultPdf } from "@/lib/pdfPipeline";
@@ -52,6 +52,7 @@ export default function AdminUploadPage() {
   const [attendanceUploads, setAttendanceUploads] = useState([]);
   const [resultUploads, setResultUploads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deletingFiles, setDeletingFiles] = useState(null);
 
   // Attendance upload form
   const [attForm, setAttForm] = useState({ branch: "CSE", semester: "5", week_label: "", week_start: "", week_end: "", academic_year_id: "", file: null });
@@ -84,6 +85,44 @@ export default function AdminUploadPage() {
       setResForm(f => ({ ...f, academic_year_id: current.id }));
     }
     setLoading(false);
+  }
+
+  async function deleteSourceFiles(kind) {
+    const isAttendance = kind === "attendance";
+    const uploads = isAttendance ? attendanceUploads : resultUploads;
+    const urls = [...new Set(uploads.map(upload => upload.pdf_url).filter(Boolean))];
+    const label = isAttendance ? "attendance" : "result";
+    if (!urls.length) {
+      toast({ title: `No stored ${label} PDFs found`, description: "Imported attendance/results will remain unchanged." });
+      return;
+    }
+    if (!window.confirm(`Delete ${urls.length} stored ${label} PDF${urls.length === 1 ? "" : "s"}? Parsed records and upload history will remain.`)) return;
+
+    setDeletingFiles(kind);
+    try {
+      const outcomes = await Promise.all(urls.map(async url => {
+        try {
+          await api.integrations.Core.DeleteFile(url);
+          return { url, ok: true };
+        } catch (error) {
+          return { url, ok: false, error };
+        }
+      }));
+      const deletedUrls = new Set(outcomes.filter(outcome => outcome.ok).map(outcome => outcome.url));
+      const rows = uploads.filter(upload => deletedUrls.has(upload.pdf_url));
+      const entity = isAttendance ? api.entities.AttendanceUploads : api.entities.ResultUploads;
+      const metadataUpdates = await Promise.all(rows.map(upload => entity.update(upload.id, { pdf_url: null }).then(() => true).catch(() => false)));
+      const removed = outcomes.filter(outcome => outcome.ok).length;
+      const failed = outcomes.filter(outcome => !outcome.ok).length + metadataUpdates.filter(updated => !updated).length;
+      toast({
+        title: failed ? `${label[0].toUpperCase() + label.slice(1)} PDF cleanup partially completed` : `${label[0].toUpperCase() + label.slice(1)} PDFs deleted`,
+        description: `${removed} file${removed === 1 ? "" : "s"} removed. Parsed records and history were kept.`,
+        variant: failed ? "destructive" : undefined,
+      });
+      await loadData();
+    } finally {
+      setDeletingFiles(null);
+    }
   }
 
   async function handleAttendanceUpload(e) {
@@ -304,7 +343,7 @@ export default function AdminUploadPage() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Upload History</CardTitle></CardHeader>
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0"><CardTitle>Upload History</CardTitle><Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => deleteSourceFiles("attendance")} disabled={deletingFiles === "attendance"}><Trash2 className="mr-1.5 h-4 w-4" />{deletingFiles === "attendance" ? "Deleting…" : "Delete all PDFs"}</Button></CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {attendanceUploads.length === 0 && <p className="text-sm text-muted-foreground">No uploads yet.</p>}
@@ -398,7 +437,7 @@ export default function AdminUploadPage() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Upload History</CardTitle></CardHeader>
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0"><CardTitle>Upload History</CardTitle><Button type="button" size="sm" variant="outline" className="text-destructive" onClick={() => deleteSourceFiles("results")} disabled={deletingFiles === "results"}><Trash2 className="mr-1.5 h-4 w-4" />{deletingFiles === "results" ? "Deleting…" : "Delete all PDFs"}</Button></CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {resultUploads.length === 0 && <p className="text-sm text-muted-foreground">No uploads yet.</p>}

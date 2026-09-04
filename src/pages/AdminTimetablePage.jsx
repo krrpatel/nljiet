@@ -17,6 +17,13 @@ const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const emptyMidSem = { exam_number: 1, subject_id: "", branch: "CSE", semester: 5, academic_year_id: "", exam_date: "", start_time: "", end_time: "", venue: "", syllabus_pdf_url: "", published: true };
 const emptyGTU = { subject_id: "", branch: "CSE", semester: 5, academic_year_id: "", exam_date: "", start_time: "", end_time: "", venue: "", published: true };
+function isPastExam(dateString) {
+  if (!dateString) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const examDate = new Date(`${dateString}T00:00:00`);
+  return !Number.isNaN(examDate.getTime()) && examDate < today;
+}
 
 export default function AdminTimetablePage() {
   const { toast } = useToast();
@@ -24,6 +31,7 @@ export default function AdminTimetablePage() {
   const [academicYears, setAcademicYears] = useState([]);
   const [midSemEntries, setMidSemEntries] = useState([]);
   const [gtuEntries, setGtuEntries] = useState([]);
+  const [syllabi, setSyllabi] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [midSemForm, setMidSemForm] = useState(emptyMidSem);
@@ -31,6 +39,8 @@ export default function AdminTimetablePage() {
   const [midSemDialog, setMidSemDialog] = useState(false);
   const [gtuDialog, setGtuDialog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syllabusExamNumber, setSyllabusExamNumber] = useState("1");
+  const [syllabusUploading, setSyllabusUploading] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const [filterBranch, setFilterBranch] = useState("CSE");
@@ -41,16 +51,27 @@ export default function AdminTimetablePage() {
   async function loadData() {
     setLoading(true);
     const safe = request => request.catch(() => []);
-    const [subs, years, mid, gtu] = await Promise.all([
+    const [subs, years, mid, gtu, syllabusRows] = await Promise.all([
       safe(api.entities.Subjects.list()),
       safe(api.entities.AcademicYears.list()),
       safe(api.entities.MidSemTimetable.list("-exam_date")),
       safe(api.entities.GTUTimetable.list("-exam_date")),
+      safe(api.entities.TimetableSyllabi.list("-created_at")),
     ]);
     setSubjects(subs);
     setAcademicYears(years);
-    setMidSemEntries(mid);
-    setGtuEntries(gtu);
+    const markPast = async (entries, entity) => {
+      const pastEntries = entries.filter(entry => isPastExam(entry.exam_date) && !entry.is_completed);
+      await Promise.all(pastEntries.map(entry => entity.update(entry.id, { is_completed: true }).catch(() => {})));
+      return entries.map(entry => isPastExam(entry.exam_date) ? { ...entry, is_completed: true } : entry);
+    };
+    const [completedMid, completedGtu] = await Promise.all([
+      markPast(mid, api.entities.MidSemTimetable),
+      markPast(gtu, api.entities.GTUTimetable),
+    ]);
+    setMidSemEntries(completedMid);
+    setGtuEntries(completedGtu);
+    setSyllabi(syllabusRows);
     const current = years.find(y => y.is_current);
     if (current) {
       setMidSemForm(f => ({ ...f, academic_year_id: current.id }));
@@ -70,7 +91,7 @@ export default function AdminTimetablePage() {
     try {
       if (!midSemForm.subject_id || !midSemForm.exam_date) throw new Error("Subject and exam date are required.");
       const subj = subjects.find(s => s.id === midSemForm.subject_id);
-      const payload = { ...midSemForm, exam_number: parseInt(midSemForm.exam_number), semester: parseInt(midSemForm.semester), subject_code: subj?.code || "", subject_name: subj?.name || "" };
+      const payload = { ...midSemForm, exam_number: parseInt(midSemForm.exam_number), semester: parseInt(midSemForm.semester), is_completed: isPastExam(midSemForm.exam_date) || Boolean(midSemForm.is_completed), subject_code: subj?.code || "", subject_name: subj?.name || "" };
       if (editingId) {
         await api.entities.MidSemTimetable.update(editingId, payload);
         toast({ title: "Timetable updated" });
@@ -95,7 +116,7 @@ export default function AdminTimetablePage() {
     try {
       if (!gtuForm.subject_id || !gtuForm.exam_date) throw new Error("Subject and exam date are required.");
       const subj = subjects.find(s => s.id === gtuForm.subject_id);
-      const payload = { ...gtuForm, semester: parseInt(gtuForm.semester), subject_code: subj?.code || "", subject_name: subj?.name || "" };
+      const payload = { ...gtuForm, semester: parseInt(gtuForm.semester), is_completed: isPastExam(gtuForm.exam_date) || Boolean(gtuForm.is_completed), subject_code: subj?.code || "", subject_name: subj?.name || "" };
       if (editingId) {
         await api.entities.GTUTimetable.update(editingId, payload);
         toast({ title: "Timetable updated" });
@@ -115,6 +136,7 @@ export default function AdminTimetablePage() {
   }
 
   async function toggleMidSemComplete(entry) {
+    if (isPastExam(entry.exam_date)) return;
     try {
       await api.entities.MidSemTimetable.update(entry.id, { is_completed: !entry.is_completed });
       await loadData();
@@ -143,22 +165,41 @@ export default function AdminTimetablePage() {
     }
   }
 
-  async function handleSyllabusUpload(e, entryId) {
+  async function handleSyllabusUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.type !== "application/pdf") {
+      toast({ title: "PDF required", description: "Upload the common syllabus as a PDF file.", variant: "destructive" });
+      return;
+    }
+    setSyllabusUploading(true);
+    let uploadedUrl = null;
     try {
-      const { file_url } = await api.integrations.Core.UploadFile({ file });
-      await api.entities.MidSemTimetable.update(entryId, { syllabus_pdf_url: file_url });
-      toast({ title: "Syllabus uploaded" });
+      const academicYearId = academicYears.find(year => year.is_current)?.id || null;
+      const existing = syllabi.find(row => row.branch === filterBranch && Number(row.semester) === Number(filterSem) && Number(row.exam_number) === Number(syllabusExamNumber) && String(row.academic_year_id || "") === String(academicYearId || ""));
+      uploadedUrl = (await api.integrations.Core.UploadFile({ file })).file_url;
+      const payload = { branch: filterBranch, semester: Number(filterSem), exam_number: Number(syllabusExamNumber), academic_year_id: academicYearId, pdf_url: uploadedUrl, updated_at: new Date().toISOString() };
+      if (existing?.id) await api.entities.TimetableSyllabi.update(existing.id, payload);
+      else await api.entities.TimetableSyllabi.create(payload);
+      if (existing?.pdf_url && existing.pdf_url !== uploadedUrl && (existing.pdf_url.includes("/storage/v1/object/public/portal-files/") || existing.pdf_url.startsWith("/uploads/"))) await api.integrations.Core.DeleteFile(existing.pdf_url).catch(() => {});
+      uploadedUrl = null;
+      toast({ title: "Common syllabus uploaded" });
       await loadData();
     } catch (error) {
+      if (uploadedUrl) await api.integrations.Core.DeleteFile(uploadedUrl).catch(() => {});
       toast({ title: "Could not upload syllabus", description: error.message, variant: "destructive" });
+    } finally {
+      setSyllabusUploading(false);
+      e.target.value = "";
     }
   }
 
   const filteredMid = midSemEntries.filter(e => e.branch === filterBranch && String(e.semester) === filterSem);
   const filteredGTU = gtuEntries.filter(e => e.branch === filterBranch && String(e.semester) === filterSem);
   const filteredSubjects = subjects.filter(s => s.branch === filterBranch && String(s.semester) === filterSem);
+  const currentAcademicYearId = academicYears.find(year => year.is_current)?.id || null;
+  const commonSyllabus = syllabi.find(row => row.branch === filterBranch && Number(row.semester) === Number(filterSem) && Number(row.exam_number) === Number(syllabusExamNumber) && String(row.academic_year_id || "") === String(currentAcademicYearId || ""))
+    || filteredMid.find(entry => Number(entry.exam_number) === Number(syllabusExamNumber) && entry.syllabus_pdf_url);
 
   if (loading) return <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin" /></div>;
 
@@ -185,6 +226,25 @@ export default function AdminTimetablePage() {
         </TabsList>
 
         <TabsContent value="midsem" className="space-y-4">
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="font-medium">Common syllabus</p>
+                <p className="text-sm text-muted-foreground">One syllabus PDF shared by every subject in this branch and semester.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={syllabusExamNumber} onValueChange={setSyllabusExamNumber}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="1">Mid Sem 1</SelectItem><SelectItem value="2">Mid Sem 2</SelectItem></SelectContent>
+                </Select>
+                {commonSyllabus?.pdf_url && <a href={commonSyllabus.pdf_url} target="_blank" rel="noreferrer"><Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Download syllabus</Button></a>}
+                <label className="cursor-pointer">
+                  <Button variant="outline" size="sm" asChild disabled={syllabusUploading}><span>{syllabusUploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}{syllabusUploading ? "Uploading…" : commonSyllabus?.pdf_url ? "Replace syllabus" : "Upload syllabus"}</span></Button>
+                  <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleSyllabusUpload} />
+                </label>
+              </div>
+            </CardContent>
+          </Card>
           <div className="flex justify-end">
             <Dialog open={midSemDialog} onOpenChange={v => { setMidSemDialog(v); if (!v) { setEditingId(null); setMidSemForm({ ...emptyMidSem, branch: filterBranch, semester: parseInt(filterSem), academic_year_id: academicYears.find(y => y.is_current)?.id || "" }); }}}>
               <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" />Add Entry</Button></DialogTrigger>
@@ -260,19 +320,9 @@ export default function AdminTimetablePage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => toggleMidSemComplete(entry)}>
+                      {!isPastExam(entry.exam_date) && <Button variant="ghost" size="sm" onClick={() => toggleMidSemComplete(entry)}>
                         {entry.is_completed ? "Mark Pending" : "Mark Done"}
-                      </Button>
-                      {entry.syllabus_pdf_url ? (
-                        <a href={entry.syllabus_pdf_url} target="_blank" rel="noreferrer">
-                          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Syllabus</Button>
-                        </a>
-                      ) : (
-                        <label className="cursor-pointer">
-                          <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" />Syllabus</span></Button>
-                          <input type="file" accept=".pdf" className="hidden" onChange={e => handleSyllabusUpload(e, entry.id)} />
-                        </label>
-                      )}
+                      </Button>}
                       <Button variant="ghost" size="icon" onClick={() => { setEditingId(entry.id); setMidSemForm({ ...entry }); setMidSemDialog(true); }}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -335,6 +385,9 @@ export default function AdminTimetablePage() {
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
+                      <div className="mb-1 flex items-center gap-2">
+                        {isPastExam(entry.exam_date) || entry.is_completed ? <Badge variant="outline" className="text-green-600 border-green-300 gap-1"><CheckCircle className="h-3 w-3" />Completed</Badge> : <Badge variant="outline" className="text-blue-600 border-blue-300">Upcoming</Badge>}
+                      </div>
                       <p className="font-semibold">{getSubjectName(entry.subject_id)}</p>
                       <p className="text-sm text-muted-foreground">
                         {entry.exam_date} {entry.start_time && `• ${entry.start_time}–${entry.end_time}`} {entry.venue && `• ${entry.venue}`}

@@ -26,13 +26,17 @@ function formatDate(d) {
 
 function isPast(dateStr) {
   if (!dateStr) return false;
-  return new Date(dateStr) < new Date();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const examDate = new Date(`${dateStr}T00:00:00`);
+  return !Number.isNaN(examDate.getTime()) && examDate < today;
 }
 
 export default function TimetablePage() {
-  const { student, subjects, loading: portalLoading, isDeptLive } = usePortal();
+  const { student, portal, subjects, loading: portalLoading, isDeptLive } = usePortal();
   const [midSem, setMidSem] = useState([]);
   const [gtu, setGtu] = useState([]);
+  const [syllabi, setSyllabi] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const subjectMap = {};
@@ -46,12 +50,14 @@ export default function TimetablePage() {
   async function loadTimetables() {
     setLoading(true);
     const safe = request => request.catch(() => []);
-    const [mid, gtuData] = await Promise.all([
+    const [mid, gtuData, syllabusRows] = await Promise.all([
       safe(api.entities.MidSemTimetable.filter({ branch: student.branch, semester: Number(student.semester), published: true }, "exam_date")),
       safe(api.entities.GTUTimetable.filter({ branch: student.branch, semester: Number(student.semester), published: true }, "exam_date")),
+      safe(api.entities.TimetableSyllabi.filter({ branch: student.branch, semester: Number(student.semester) }, "-created_at")),
     ]);
     setMidSem(mid);
     setGtu(gtuData);
+    setSyllabi(syllabusRows);
     setLoading(false);
   }
 
@@ -61,15 +67,16 @@ export default function TimetablePage() {
   const renderExamCard = (entry) => {
     const subj = subjectMap[entry.subject_id];
     const past = isPast(entry.exam_date);
+    const completed = past || entry.is_completed;
     return (
-      <Card key={entry.id} className={`${past || entry.is_completed ? "opacity-75" : ""} ${!past && !entry.is_completed ? "border-primary/30" : ""}`}>
+      <Card key={entry.id} className={`${completed ? "opacity-75" : ""} ${!completed ? "border-primary/30" : ""}`}>
         <CardContent className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 {entry.exam_number && <Badge variant={entry.exam_number === 1 ? "default" : "secondary"}>Mid Sem {entry.exam_number}</Badge>}
-                {entry.is_completed && <Badge variant="outline" className="text-green-600 border-green-300 gap-1"><CheckCircle className="h-3 w-3" />Done</Badge>}
-                {!past && !entry.is_completed && <Badge variant="outline" className="text-blue-600 border-blue-300 gap-1"><Clock className="h-3 w-3" />Upcoming</Badge>}
+                {completed && <Badge variant="outline" className="text-green-600 border-green-300 gap-1"><CheckCircle className="h-3 w-3" />Done</Badge>}
+                {!completed && <Badge variant="outline" className="text-blue-600 border-blue-300 gap-1"><Clock className="h-3 w-3" />Upcoming</Badge>}
               </div>
               <p className="font-semibold">{subj?.name || entry.subject_name}</p>
               <p className="text-xs text-muted-foreground font-mono">{subj?.code || entry.subject_code}</p>
@@ -79,13 +86,6 @@ export default function TimetablePage() {
                 {entry.venue && <span>📍 {entry.venue}</span>}
               </div>
             </div>
-            {entry.syllabus_pdf_url && (
-              <a href={entry.syllabus_pdf_url} target="_blank" rel="noreferrer">
-                <Button variant="outline" size="sm" className="shrink-0">
-                  <Download className="h-4 w-4 mr-1" />Syllabus
-                </Button>
-              </a>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -94,6 +94,15 @@ export default function TimetablePage() {
 
   const midSem1 = midSem.filter(e => e.exam_number === 1);
   const midSem2 = midSem.filter(e => e.exam_number === 2);
+  const currentAcademicYearId = portal?.years?.find(year => year.is_current)?.id || student.academic_year_id || "";
+  const commonSyllabusUrl = examNumber => {
+    const exact = syllabi.find(row => Number(row.exam_number) === examNumber && String(row.academic_year_id || "") === String(currentAcademicYearId));
+    return exact?.pdf_url || syllabi.find(row => Number(row.exam_number) === examNumber)?.pdf_url || midSem.find(row => Number(row.exam_number) === examNumber && row.syllabus_pdf_url)?.syllabus_pdf_url;
+  };
+  const commonSyllabus = examNumber => {
+    const url = commonSyllabusUrl(examNumber);
+    return url ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3"><div><p className="font-medium">Common syllabus</p><p className="text-sm text-muted-foreground">Shared by all subjects in Mid Sem {examNumber}.</p></div><a href={url} target="_blank" rel="noreferrer"><Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Download syllabus</Button></a></div> : null;
+  };
 
   return (
     <div className="space-y-6">
@@ -107,6 +116,7 @@ export default function TimetablePage() {
         </TabsList>
 
         <TabsContent value="midsem1" className="space-y-3 mt-4">
+          {commonSyllabus(1)}
           {midSem1.length === 0
             ? <div className="text-center py-16 text-muted-foreground border rounded-xl bg-muted/20"><Clock className="h-8 w-8 mx-auto mb-3 opacity-40" /><p>Mid Sem 1 timetable not yet declared.</p></div>
             : midSem1.map(renderExamCard)
@@ -114,6 +124,7 @@ export default function TimetablePage() {
         </TabsContent>
 
         <TabsContent value="midsem2" className="space-y-3 mt-4">
+          {commonSyllabus(2)}
           {midSem2.length === 0
             ? <div className="text-center py-16 text-muted-foreground border rounded-xl bg-muted/20"><Clock className="h-8 w-8 mx-auto mb-3 opacity-40" /><p>Mid Sem 2 timetable not yet declared.</p></div>
             : midSem2.map(renderExamCard)

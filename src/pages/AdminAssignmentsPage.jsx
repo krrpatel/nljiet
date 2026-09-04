@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/use-toast";
 
 const BRANCHES = ["CSE", "AIML", "DS"];
 const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
+const MAX_SOLUTION_SIZE = 10 * 1024 * 1024;
 const emptyForm = { branch: "CSE", semester: "5", subject_id: "", academic_year_id: "", assignment_number: "1", title: "", description: "", deadline: "", solution_link: "", published: true };
 
 function localDateTime(value) {
@@ -32,6 +33,7 @@ export default function AdminAssignmentsPage() {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [solutionFile, setSolutionFile] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
   const [reviewNotes, setReviewNotes] = useState({});
 
@@ -58,6 +60,7 @@ export default function AdminAssignmentsPage() {
   function resetForm() {
     setEditingId(null);
     setForm({ ...emptyForm, academic_year_id: academicYears.find(year => year.is_current)?.id || "" });
+    setSolutionFile(null);
   }
 
   function editAssignment(assignment) {
@@ -83,8 +86,16 @@ export default function AdminAssignmentsPage() {
       toast({ title: "Subject and title are required", variant: "destructive" });
       return;
     }
+    if (solutionFile && (solutionFile.type !== "application/pdf" || solutionFile.size > MAX_SOLUTION_SIZE)) {
+      toast({ title: "Invalid solution PDF", description: "Use a PDF file up to 10 MB.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
+    let uploadedSolutionUrl = null;
+    let saved = false;
     try {
+      const previous = editingId ? assignments.find(assignment => assignment.id === editingId) : null;
+      if (solutionFile) uploadedSolutionUrl = (await api.integrations.Core.UploadFile({ file: solutionFile })).file_url;
       const payload = {
         subject_id: form.subject_id,
         branch: form.branch,
@@ -94,15 +105,20 @@ export default function AdminAssignmentsPage() {
         title: form.title.trim(),
         description: form.description.trim() || null,
         deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-        solution_link: form.solution_link.trim() || null,
+        solution_link: uploadedSolutionUrl || form.solution_link.trim() || null,
         published: Boolean(form.published),
       };
       if (editingId) await api.entities.Assignments.update(editingId, payload);
       else await api.entities.Assignments.create(payload);
+      saved = true;
+      if (previous?.solution_link && previous.solution_link !== payload.solution_link && (previous.solution_link.includes("/storage/v1/object/public/portal-files/") || previous.solution_link.startsWith("/uploads/"))) {
+        await api.integrations.Core.DeleteFile(previous.solution_link).catch(() => {});
+      }
       toast({ title: editingId ? "Assignment updated" : "Assignment added" });
       resetForm();
       await loadData();
     } catch (error) {
+      if (uploadedSolutionUrl && !saved) await api.integrations.Core.DeleteFile(uploadedSolutionUrl).catch(() => {});
       toast({ title: "Could not save assignment", description: error.message, variant: "destructive" });
     } finally {
       setSaving(false);
@@ -153,7 +169,7 @@ export default function AdminAssignmentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Assignments" description="Add assignments, publish them to students, and approve submitted solutions." />
+      <PageHeader title="Assignment Edit" description="Add/edit assignments, publish them, upload a canonical solution, and approve student submissions." />
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
@@ -168,7 +184,8 @@ export default function AdminAssignmentsPage() {
               <div className="sm:col-span-2"><Label>Title</Label><Input value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} placeholder="Solve the CN subnetting worksheet" required /></div>
               <div className="sm:col-span-2"><Label>Description</Label><Textarea value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} placeholder="Instructions for students" /></div>
               <div><Label>Deadline</Label><Input type="datetime-local" value={form.deadline} onChange={event => setForm(current => ({ ...current, deadline: event.target.value }))} /></div>
-              <div><Label>Solution link (optional)</Label><Input type="url" value={form.solution_link} onChange={event => setForm(current => ({ ...current, solution_link: event.target.value }))} placeholder="https://…" /></div>
+              <div><Label>Solution link (optional)</Label><Input type="url" value={form.solution_link} onChange={event => setForm(current => ({ ...current, solution_link: event.target.value }))} placeholder="https://…" /><p className="mt-1 text-xs text-muted-foreground">Use a link, or upload the solution PDF below.</p></div>
+              <div><Label>Solution PDF (optional)</Label><Input type="file" accept="application/pdf,.pdf" onChange={event => setSolutionFile(event.target.files?.[0] || null)} /><p className="mt-1 text-xs text-muted-foreground">PDF up to 10 MB. It becomes the student download link.</p></div>
               <div className="flex items-center gap-3 pt-6"><Switch checked={form.published} onCheckedChange={value => setForm(current => ({ ...current, published: value }))} /><Label>Published to students</Label></div>
               <Button type="submit" className="sm:col-span-2" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}{editingId ? "Update assignment" : "Add assignment"}</Button>
             </form>

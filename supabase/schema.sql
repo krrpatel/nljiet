@@ -1,5 +1,5 @@
 create extension if not exists pgcrypto;
--- Enable email-link auth and configure SMTP in Supabase for production verification emails.
+-- Configure Supabase Email Auth with Confirm email disabled for direct registration.
 create table if not exists public.students (id uuid primary key default gen_random_uuid(), enrollment_number text unique not null, full_name text not null, branch text not null, semester int not null, email text, created_at timestamptz default now());
 alter table public.students add column if not exists student_id text;
 alter table public.students add column if not exists uid_number text;
@@ -32,6 +32,8 @@ create table if not exists public.result_uploads (id uuid primary key default ge
 alter table public.attendance_uploads add column if not exists created_at timestamptz default now();
 alter table public.result_uploads add column if not exists created_at timestamptz default now();
 create table if not exists public.mid_sem_timetable (id uuid primary key default gen_random_uuid(), exam_number int not null, subject_id uuid, branch text not null, semester int not null, academic_year_id uuid, exam_date date not null, start_time time, end_time time, venue text, syllabus_pdf_url text, subject_code text, subject_name text, is_completed boolean default false, published boolean default true, created_at timestamptz default now());
-create table if not exists public.gtu_timetable (id uuid primary key default gen_random_uuid(), subject_id uuid, branch text not null, semester int not null, academic_year_id uuid, exam_date date not null, start_time time, end_time time, venue text, subject_code text, subject_name text, published boolean default true, created_at timestamptz default now());
+create table if not exists public.gtu_timetable (id uuid primary key default gen_random_uuid(), subject_id uuid, branch text not null, semester int not null, academic_year_id uuid, exam_date date not null, start_time time, end_time time, venue text, subject_code text, subject_name text, is_completed boolean default false, published boolean default true, created_at timestamptz default now());
+alter table public.gtu_timetable add column if not exists is_completed boolean default false;
+create table if not exists public.timetable_syllabi (id uuid primary key default gen_random_uuid(), branch text not null, semester int not null, exam_number int not null, academic_year_id uuid, pdf_url text not null, created_at timestamptz default now(), updated_at timestamptz default now());
 insert into storage.buckets (id,name,public) values ('portal-files','portal-files',true) on conflict (id) do nothing;
 update storage.buckets set public = true where id = 'portal-files';

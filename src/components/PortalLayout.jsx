@@ -39,12 +39,13 @@ const ADMIN_NAV = [
   { to: "/fees", label: "Fees", icon: Wallet },
   { to: "/profile", label: "Profile", icon: User },
   { to: "/timetable", label: "Timetable", icon: CalendarDays },
+  { to: "/assignments", label: "Assignments", icon: ClipboardList },
   { to: "/admin", label: "Settings", icon: Settings },
   { to: "/admin/departments", label: "Departments", icon: Building2 },
   { to: "/admin/academic-data", label: "Subjects & Years", icon: BookOpen },
   { to: "/admin/timetable", label: "Timetable", icon: Calendar },
   { to: "/admin/upload", label: "Upload Data", icon: Upload },
-  { to: "/admin/assignments", label: "Assignments", icon: ClipboardList },
+  { to: "/admin/assignments", label: "Assignment Edit", icon: ClipboardList },
 ];
 
 function Shell() {
