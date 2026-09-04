@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, ArrowLeft, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
+import WhatsAppHelp from "@/components/WhatsAppHelp";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -69,8 +70,14 @@ export default function ForgotPassword() {
               "Send reset link"
             )}
           </Button>
+          <p className="text-xs text-muted-foreground mt-3">
+            Use the email associated with your verified student account.
+          </p>
         </form>
       )}
+      <div className="mt-6 text-center">
+        <WhatsAppHelp />
+      </div>
     </AuthLayout>
   );
 }

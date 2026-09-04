@@ -1,232 +1,138 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, Lock, Loader2 } from "lucide-react";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import AuthLayout from "@/components/AuthLayout";
-import GoogleIcon from "@/components/GoogleIcon";
-import { toast } from "@/components/ui/use-toast";
+import EnrollmentStep from "@/components/register/EnrollmentStep";
+import EmailPreviewStep from "@/components/register/EmailPreviewStep";
+import ConfirmEmailStep from "@/components/register/ConfirmEmailStep";
+import OtpStep from "@/components/register/OtpStep";
 import { safeReturnTo } from "@/lib/authReturnTo";
 
+// Registration flow: enrollment number -> Octopod validation (server-side) ->
+// masked verified-email preview -> student re-enters the same email -> email
+// OTP verification -> account created -> verified mapping stored -> dashboard.
 export default function Register() {
+  const [step, setStep] = useState("enrollment");
+  const [enrollmentNumber, setEnrollmentNumber] = useState("");
+  const [maskedEmail, setMaskedEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showOtp, setShowOtp] = useState(false);
   const [otpCode, setOtpCode] = useState("");
+  const [finalizeError, setFinalizeError] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleValidateEnrollment = async (enrollment) => {
     setError("");
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
     setLoading(true);
     try {
-      await base44.auth.register({ email, password });
-      setShowOtp(true);
+      const res = await base44.functions.invoke("octopodValidate", { enrollmentNumber: enrollment });
+      setEnrollmentNumber(enrollment);
+      setMaskedEmail(res.data.maskedEmail);
+      setFullName(res.data.fullName);
+      setStep("preview");
     } catch (err) {
-      setError(err.message || "Registration failed");
+      const code = err?.response?.data?.error;
+      if (code === "already_registered") {
+        setError("This enrollment number is already registered. Please log in instead.");
+      } else if (code === "invalid_enrollment") {
+        setError("Enrollment number could not be verified.");
+      } else {
+        setError("Enrollment verification is unavailable right now. Please try again later.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerify = async () => {
+  const handleConfirm = async (enteredEmail, password, validationError) => {
     setError("");
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await base44.functions.invoke("octopodConfirmEmail", {
+        enrollmentNumber,
+        enteredEmail,
+      });
+      const confirmedEmail = res.data.email;
+      setEmail(confirmedEmail);
+      await base44.auth.register({ email: confirmedEmail, password });
+      setStep("otp");
+    } catch (err) {
+      const code = err?.response?.data?.error;
+      if (code === "email_mismatch") {
+        setError("The email does not match the email registered with Octopod.");
+      } else if (code === "already_registered") {
+        setError("This enrollment number is already registered. Please log in instead.");
+      } else if (code === "invalid_enrollment") {
+        setError("Enrollment number could not be verified. Please start again.");
+      } else {
+        setError(err?.message || "Could not continue. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const finalize = async () => {
+    try {
+      await base44.functions.invoke("octopodCompleteRegistration", { enrollmentNumber });
+      window.location.href = safeReturnTo();
+    } catch {
+      setFinalizeError(true);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setError("");
+    setFinalizeError(false);
     setLoading(true);
     try {
       const result = await base44.auth.verifyOtp({ email, otpCode });
       if (result?.access_token) {
         base44.auth.setToken(result.access_token);
       }
-      window.location.href = safeReturnTo();
+      await finalize();
     } catch (err) {
-      setError(err.message || "Invalid verification code");
+      setError(err?.message || "Invalid verification code");
     } finally {
       setLoading(false);
     }
   };
 
   const handleResend = async () => {
-    setError("");
-    try {
-      await base44.auth.resendOtp(email);
-      toast({
-        title: "Code sent",
-        description: "Check your email for the new code.",
-      });
-    } catch (err) {
-      setError(err.message || "Failed to resend code");
-    }
+    await base44.auth.resendOtp(email);
   };
 
-  const handleGoogle = () => {
-    base44.auth.loginWithProvider("google", safeReturnTo());
-  };
-
-  if (showOtp) {
+  if (step === "enrollment") {
+    return <EnrollmentStep onValidated={handleValidateEnrollment} loading={loading} error={error} />;
+  }
+  if (step === "preview") {
     return (
-      <AuthLayout
-        icon={Mail}
-        title="Verify your email"
-        subtitle={`We sent a code to ${email}`}
-      >
-        {error && (
-          <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-            {error}
-          </div>
-        )}
-        <div className="flex justify-center mb-6">
-          <InputOTP
-            maxLength={6}
-            value={otpCode}
-            onChange={setOtpCode}
-            autoFocus
-            autoComplete="one-time-code"
-          >
-            <InputOTPGroup>
-              <InputOTPSlot index={0} />
-              <InputOTPSlot index={1} />
-              <InputOTPSlot index={2} />
-              <InputOTPSlot index={3} />
-              <InputOTPSlot index={4} />
-              <InputOTPSlot index={5} />
-            </InputOTPGroup>
-          </InputOTP>
-        </div>
-        <Button
-          className="w-full h-12 font-medium"
-          onClick={handleVerify}
-          disabled={loading || otpCode.length < 6}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Verifying...
-            </>
-          ) : (
-            "Verify"
-          )}
-        </Button>
-        <p className="text-center text-sm text-muted-foreground mt-4">
-          Didn't receive the code?{" "}
-          <button onClick={handleResend} className="text-primary font-medium hover:underline">
-            Resend
-          </button>
-        </p>
-      </AuthLayout>
+      <EmailPreviewStep
+        enrollmentNumber={enrollmentNumber}
+        maskedEmail={maskedEmail}
+        fullName={fullName}
+        onUseEmail={() => setStep("confirm")}
+      />
     );
   }
-
+  if (step === "confirm") {
+    return <ConfirmEmailStep maskedEmail={maskedEmail} onSubmit={handleConfirm} loading={loading} error={error} />;
+  }
   return (
-    <AuthLayout
-      icon={UserPlus}
-      title="Create your account"
-      subtitle="Sign up to get started"
-      footer={
-        <>
-          Already have an account?{" "}
-          <Link
-            to={"/login" + (safeReturnTo() !== "/" ? "?returnTo=" + encodeURIComponent(safeReturnTo()) : "")}
-            className="text-primary font-medium hover:underline"
-          >
-            Log in
-          </Link>
-        </>
-      }
-    >
-      <Button
-        variant="outline"
-        className="w-full h-12 text-sm font-medium mb-6"
-        onClick={handleGoogle}
-      >
-        <GoogleIcon className="w-5 h-5 mr-2" />
-        Continue with Google
-      </Button>
-
-      <div className="relative mb-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-border" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-card px-3 text-muted-foreground">or</span>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-          {error}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              autoFocus
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="pl-10 h-12"
-              required
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="pl-10 h-12"
-              required
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="confirm">Confirm Password</Label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-            <Input
-              id="confirm"
-              type="password"
-              autoComplete="new-password"
-              placeholder="••••••••"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="pl-10 h-12"
-              required
-            />
-          </div>
-        </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Creating account...
-            </>
-          ) : (
-            "Create account"
-          )}
-        </Button>
-      </form>
-    </AuthLayout>
+    <OtpStep
+      email={email}
+      maskedEmail={maskedEmail}
+      otpCode={otpCode}
+      setOtpCode={setOtpCode}
+      onVerify={handleVerifyOtp}
+      onResend={handleResend}
+      loading={loading}
+      error={error}
+      finalizeError={finalizeError}
+      onRetryFinalize={finalize}
+    />
   );
 }

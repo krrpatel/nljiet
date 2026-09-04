@@ -4,43 +4,57 @@ import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
+import { LogIn, Lock, Loader2, User } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
-import GoogleIcon from "@/components/GoogleIcon";
+import WhatsAppHelp from "@/components/WhatsAppHelp";
 import { safeReturnTo } from "@/lib/authReturnTo";
 
+// Login with either the verified email or the enrollment number. The
+// enrollment number is only an identifier lookup — authentication is always
+// email + password via the platform auth backend.
 export default function Login() {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  // Post-login destination (e.g. the MCP OAuth consent page sends users here
-  // with returnTo so the grant flow can resume). Same-origin paths only.
   const returnTo = safeReturnTo();
+
+  const resolveEmail = async (value) => {
+    const trimmed = value.trim();
+    if (trimmed.includes("@")) return trimmed;
+    // Enrollment number: resolve the verified account email server-side;
+    // fall back to the student records when the backend layer is unavailable.
+    try {
+      const res = await base44.functions.invoke("resolveLoginEmail", { enrollmentNumber: trimmed });
+      return res.data.email;
+    } catch {
+      const students = await base44.entities.Students.list();
+      const match = students.find((s) => s.enrollment_number === trimmed);
+      if (!match?.email) throw new Error("not_found");
+      return match.email;
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
+      const email = await resolveEmail(identifier);
       await base44.auth.loginViaEmailPassword(email, password);
       window.location.href = returnTo;
-    } catch (err) {
-      setError(err.message || "Invalid email or password");
+    } catch {
+      setError("Invalid credentials. Check your email/enrollment number and password.");
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleGoogle = () => {
-    base44.auth.loginWithProvider("google", returnTo);
   };
 
   return (
     <AuthLayout
       icon={LogIn}
       title="Welcome back"
-      subtitle="Log in to your account"
+      subtitle="Log in with your email or enrollment number"
       footer={
         <>
           Don't have an account?{" "}
@@ -48,48 +62,27 @@ export default function Login() {
             to={"/register" + (returnTo !== "/" ? "?returnTo=" + encodeURIComponent(returnTo) : "")}
             className="text-primary font-medium hover:underline"
           >
-            Create one
+            Register
           </Link>
         </>
       }
     >
-      <Button
-        variant="outline"
-        className="w-full h-12 text-sm font-medium mb-6"
-        onClick={handleGoogle}
-      >
-        <GoogleIcon className="w-5 h-5 mr-2" />
-        Continue with Google
-      </Button>
-
-      <div className="relative mb-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-border" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-card px-3 text-muted-foreground">or</span>
-        </div>
-      </div>
-
       {error && (
-        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-          {error}
-        </div>
+        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="identifier">Email or Enrollment Number</Label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
             <Input
-              id="email"
-              type="email"
-              autoComplete="email"
+              id="identifier"
+              type="text"
               autoFocus
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com or 241430131122"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="pl-10 h-12"
               required
             />
@@ -127,6 +120,10 @@ export default function Login() {
           )}
         </Button>
       </form>
+
+      <div className="mt-6 text-center">
+        <WhatsAppHelp />
+      </div>
     </AuthLayout>
   );
 }
