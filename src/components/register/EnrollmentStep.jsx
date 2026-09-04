@@ -9,16 +9,23 @@ import { safeReturnTo } from "@/lib/authReturnTo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const BRANCHES = ["CSE", "DS", "AIML"];
-const DIVISIONS = ["D1", "D2", "DN"];
+const DIVISION_PATTERN = /^D(?:[1-9]|1[0-5])$/;
 
 export default function EnrollmentStep({ onValidated, loading, error }) {
   const [enrollmentNumber, setEnrollmentNumber] = useState("");
   const [branch, setBranch] = useState("CSE");
   const [division, setDivision] = useState("D1");
+  const [divisionError, setDivisionError] = useState("");
 
   const submit = (e) => {
     e.preventDefault();
-    onValidated(enrollmentNumber.trim(), { branch, division });
+    const normalizedDivision = division.trim().toUpperCase();
+    if (!DIVISION_PATTERN.test(normalizedDivision)) {
+      setDivisionError("Enter a valid division from D1 to D15.");
+      return;
+    }
+    setDivisionError("");
+    onValidated(enrollmentNumber.trim(), { branch, division: normalizedDivision });
   };
 
   return (
@@ -65,11 +72,20 @@ export default function EnrollmentStep({ onValidated, loading, error }) {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Division</Label>
-            <Select value={division} onValueChange={setDivision}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{DIVISIONS.map(value => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
-            </Select>
+            <Label htmlFor="division">Division</Label>
+            <Input
+              id="division"
+              type="text"
+              inputMode="text"
+              autoCapitalize="characters"
+              maxLength={3}
+              placeholder="e.g. D1 or D15"
+              value={division}
+              onChange={(e) => { setDivision(e.target.value.toUpperCase().replace(/\s/g, "")); setDivisionError(""); }}
+              aria-invalid={Boolean(divisionError)}
+              required
+            />
+            {divisionError && <p className="text-xs text-destructive">{divisionError}</p>}
           </div>
         </div>
         <Button type="submit" className="w-full h-12 font-medium" disabled={loading || !enrollmentNumber.trim()}>

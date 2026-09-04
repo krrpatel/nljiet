@@ -38,6 +38,8 @@ export default function Register() {
         setError("Enrollment number could not be verified.");
       } else if (code === "octopod_unavailable") {
         setError("Octopod is temporarily unavailable. Please try again in a moment.");
+      } else if (code === "invalid_division") {
+        setError("Division must be in the format D1 to D15.");
       } else {
         setError("Enrollment verification is unavailable right now. Please try again later.");
       }
@@ -60,10 +62,10 @@ export default function Register() {
       });
       const confirmedEmail = res.data.email;
       const registration = await api.auth.register({ email: confirmedEmail, password, enrollmentNumber });
-      if (!registration?.session) {
-        throw new Error("Direct registration is not enabled. Turn off Supabase Auth → Email → Confirm email, then try again.");
-      }
       await api.functions.invoke("octopodCompleteRegistration", { enrollmentNumber, email: confirmedEmail, profile: { ...validatedProfile, ...registrationDetails } });
+      if (!registration?.session) {
+        throw new Error("Student record saved, but Supabase email confirmation is still enabled. Disable Confirm email in Supabase Auth, then log in after confirming this account.");
+      }
       window.location.href = safeReturnTo();
     } catch (err) {
       const code = err?.response?.data?.error;

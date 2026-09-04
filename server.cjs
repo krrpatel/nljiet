@@ -162,8 +162,11 @@ const requestHandler = async (req, res) => {
       const { enrollmentNumber, email, profile } = await body(req);
       if (!supabaseUrl || !supabaseKey) return json(res,503,{error:"Database is not configured"});
       const requestedBranch = String(profile?.branch || profile?.Branch || profile?.Department || process.env.OCTOPOD_DEFAULT_BRANCH || "CSE").trim().toUpperCase();
-      const requestedDivision = String(profile?.division || profile?.Division || profile?.DivisionName || "D1").trim().toUpperCase();
-      const registration = { enrollment_number: enrollmentNumber, full_name: profile?.fullName || profile?.StudentFullName || "Unknown", branch: ["CSE", "DS", "AIML"].includes(requestedBranch) ? requestedBranch : "CSE", division: ["D1", "D2", "DN"].includes(requestedDivision) ? requestedDivision : "D1", semester: Number(profile?.semester || profile?.currentSemester || profile?.academicYears?.length || 1) || 1, email };
+      const rawDivision = profile?.division || profile?.Division || profile?.DivisionName;
+      const requestedDivision = String(rawDivision || "D1").trim().toUpperCase();
+      const validDivision = /^D(?:[1-9]|1[0-5])$/;
+      if (rawDivision && !validDivision.test(requestedDivision)) return json(res, 400, { error: "invalid_division" });
+      const registration = { enrollment_number: enrollmentNumber, full_name: profile?.fullName || profile?.StudentFullName || "Unknown", branch: ["CSE", "DS", "AIML"].includes(requestedBranch) ? requestedBranch : "CSE", division: requestedDivision, semester: Number(profile?.semester || profile?.currentSemester || profile?.academicYears?.length || 1) || 1, email };
       try {
         const existing = await supabaseRequest("students", "GET", supabaseKey, `?enrollment_number=eq.${encodeURIComponent(enrollmentNumber)}&select=id`);
         if (existing?.[0]?.id) await supabaseRequest("students", "PATCH", supabaseKey, `?id=eq.${encodeURIComponent(existing[0].id)}`, registration);
