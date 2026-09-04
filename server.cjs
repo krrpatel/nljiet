@@ -57,7 +57,8 @@ async function listSupabaseAuthUsers() {
   return users;
 }
 const OCTOPOD_BASE = process.env.OCTOPOD_BASE_URL || "https://octopod.co.in";
-const octopodHeaders = { Accept:"application/json, text/javascript, */*; q=0.01", "Accept-Language":"en,fr;q=0.9,gu;q=0.8,hi;q=0.7", "X-Requested-With":"XMLHttpRequest", "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36", Referer:"https://octopod.co.in/student/admission/0a8283bbbe6a76110b1f44e9db656812" };
+const OCTOPOD_REFERER = "https://octopod.co.in/student/admission/0a8283bbbe6a76110b1f44e9db656812";
+const octopodHeaders = { Accept:"application/json, text/javascript, */*; q=0.01", "Accept-Language":"en,fr;q=0.9,gu;q=0.8,hi;q=0.7", "X-Requested-With":"XMLHttpRequest", "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36", Referer:OCTOPOD_REFERER };
 async function octopodGet(endpoint, params = {}) {
   const url = new URL(endpoint, OCTOPOD_BASE); Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null) url.searchParams.set(key, String(value)); });
   const response = await fetch(url, { headers: octopodHeaders, signal: AbortSignal.timeout(Number(process.env.OCTOPOD_TIMEOUT_MS || 15000)) });
