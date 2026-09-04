@@ -17,6 +17,10 @@ import AssignmentsPage from '@/pages/AssignmentsPage';
 import FeesPage from '@/pages/FeesPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
+import AdminUploadPage from '@/pages/AdminUploadPage';
+import AdminTimetablePage from '@/pages/AdminTimetablePage';
+import AdminDepartmentsPage from '@/pages/AdminDepartmentsPage';
+import TimetablePage from '@/pages/TimetablePage';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -62,6 +66,10 @@ const AuthenticatedApp = () => {
           <Route path="/fees" element={<FeesPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/admin" element={<AdminSettingsPage />} />
+          <Route path="/admin/upload" element={<AdminUploadPage />} />
+          <Route path="/admin/timetable" element={<AdminTimetablePage />} />
+          <Route path="/admin/departments" element={<AdminDepartmentsPage />} />
+          <Route path="/timetable" element={<TimetablePage />} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />

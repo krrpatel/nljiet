@@ -1,104 +1,131 @@
 import React, { useMemo } from "react";
 import { usePortal } from "@/lib/portalContext";
-import { aggregateAttendanceBySubject, overallAttendance, subjectById } from "@/lib/portalData";
-import { calculateAttendancePlan, DEFAULT_TOTAL_PLANNED, statusLabel, statusColor } from "@/lib/attendance";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, AlertTriangle } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import StatCard from "@/components/StatCard";
 import AttendanceRing from "@/components/AttendanceRing";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import ComingSoonDept from "@/components/ComingSoonDept";
+import { calculateAttendancePlan } from "@/lib/attendance";
+
+function getStatusColor(status) {
+  const map = { safe: "text-green-600", warning: "text-amber-600", critical: "text-red-600" };
+  return map[status] || "text-muted-foreground";
+}
+
+function StatusBadge({ status }) {
+  const map = { safe: "bg-green-100 text-green-800 border-green-200", warning: "bg-amber-100 text-amber-800 border-amber-200", critical: "bg-red-100 text-red-800 border-red-200" };
+  const labels = { safe: "Safe", warning: "Warning", critical: "Critical" };
+  return <Badge className={map[status] || ""}>{labels[status] || status}</Badge>;
+}
 
 export default function AttendancePage() {
-  const { student, portal, academic, loading } = usePortal();
+  const { student, subjects, attendanceAgg, overallAtt, loading, isDeptLive } = usePortal();
 
-  const { overall, subjectPlans, targetPct } = useMemo(() => {
-    if (!portal || !academic) return { overall: { percentage: null, attended: 0, conducted: 0 }, subjectPlans: [], targetPct: 75 };
-    const targetPct = portal.attSettings[0]?.minimum_percentage || 75;
-    const agg = aggregateAttendanceBySubject(academic.attendance);
-    const overall = overallAttendance(agg);
-    const subjectPlans = Object.entries(agg).map(([sid, v]) => {
-      const plan = calculateAttendancePlan({ attended: v.attended, conducted: v.conducted, totalPlanned: DEFAULT_TOTAL_PLANNED, targetPct });
-      return { subject: subjectById(portal.subjects, sid), plan, conducted: v.conducted, attended: v.attended, weeks: v.weeks };
-    });
-    return { overall, subjectPlans, targetPct };
-  }, [portal, academic]);
+  const minPct = 75;
 
-  if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 w-48 rounded bg-muted" /><div className="h-64 rounded-lg bg-muted" /></div>;
+  const subjectStats = useMemo(() => {
+    return subjects.map(subj => {
+      const agg = attendanceAgg[subj.id];
+      if (!agg) return { subj, conducted: 0, attended: 0, percentage: null, status: null };
+      const calc = calculateAttendancePlan({ attended: agg.attended, conducted: agg.conducted, totalPlanned: agg.conducted, targetPct: minPct });
+      return { subj, conducted: agg.conducted, attended: agg.attended, percentage: calc.currentPct, status: calc.status, calc };
+    }).filter(s => s.conducted > 0);
+  }, [subjects, attendanceAgg]);
 
-  const overallPlan = calculateAttendancePlan({ attended: overall.attended, conducted: overall.conducted, totalPlanned: DEFAULT_TOTAL_PLANNED * (subjectPlans.length || 1), targetPct });
+  if (loading) return (
+    <div className="space-y-4">
+      <div className="h-8 w-48 bg-muted rounded animate-pulse" />
+      <div className="grid grid-cols-2 gap-4">{[...Array(4)].map((_, i) => <div key={i} className="h-24 bg-muted rounded animate-pulse" />)}</div>
+    </div>
+  );
+
+  if (!isDeptLive && student) return <ComingSoonDept branch={student.branch} feature="Attendance tracking" />;
+
+  if (!student) return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
+      <h2 className="text-xl font-semibold mb-2">Student record not found</h2>
+      <p className="text-muted-foreground max-w-sm">Your account is not yet linked to a student record. Contact your department admin.</p>
+    </div>
+  );
+
+  const overallCalc = overallAtt.conducted > 0
+    ? calculateAttendancePlan({ attended: overallAtt.attended, conducted: overallAtt.conducted, totalPlanned: overallAtt.conducted, targetPct: minPct })
+    : null;
 
   return (
-    <div>
-      <PageHeader title="Attendance" description={`Minimum required: ${targetPct}% • Semester ${student?.current_semester}`} />
-      <Card className="mb-6">
-        <CardContent className="flex flex-col items-center gap-6 py-8 sm:flex-row sm:justify-around">
-          <div className="flex flex-col items-center">
-            <AttendanceRing percentage={overall.percentage} status={overallPlan.status} size={160} />
-            <p className="mt-3 text-sm font-medium">Overall Attendance</p>
-            <p className="text-xs text-muted-foreground">{overall.attended} / {overall.conducted} lectures attended</p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
-            <Metric label="Target" value={`${targetPct}%`} />
-            <Metric label="Status" value={statusLabel(overallPlan.status)} color={statusColor(overallPlan.status)} />
-            <Metric label="Can still miss" value={`${overallPlan.canBunk} lectures`} />
-            <Metric label="Must attend" value={`${overallPlan.mustAttend} of ${overallPlan.remaining}`} />
-            <Metric label="Max possible" value={overallPlan.maxPossiblePct == null ? "—" : `${overallPlan.maxPossiblePct}%`} />
-            <Metric label="If semester ended" value={`${overallPlan.canBunkIfSemesterEndedToday} spare`} />
-          </div>
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      <PageHeader title="Attendance" description={`${student.branch} • Semester ${student.semester}`} />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {subjectPlans.map(({ subject, plan, conducted, attended }) => (
-          <Card key={subject?.id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{subject?.name}</CardTitle>
-                <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", toneBadge(plan.status))}>
-                  {statusLabel(plan.status)}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">{subject?.abbreviation} • {subject?.branch}</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <AttendanceRing percentage={plan.currentPct} status={plan.status} size={90} stroke={9} />
-                <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-1.5 text-xs pl-4">
-                  <Metric label="Current" value={plan.currentPct == null ? "—" : `${plan.currentPct}%`} />
-                  <Metric label="Attended" value={`${attended}/${conducted}`} />
-                  <Metric label="Can miss" value={`${plan.canBunk}`} />
-                  <Metric label="Must attend" value={`${plan.mustAttend}/${plan.remaining}`} />
-                  <Metric label="Projected" value={plan.maxPossiblePct == null ? "—" : `${plan.maxPossiblePct}%`} />
-                  <Metric label="Spare if ended" value={`${plan.canBunkIfSemesterEndedToday}`} />
-                </div>
-              </div>
-              {!plan.achievable && (
-                <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                  {targetPct}% is no longer reachable. Best possible: {plan.maxPossiblePct}%
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-        {subjectPlans.length === 0 && (
-          <Card className="md:col-span-2"><CardContent className="py-12 text-center text-sm text-muted-foreground">No attendance records yet.</CardContent></Card>
+      {/* Overall summary */}
+      <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
+        {overallCalc && (
+          <div className="flex-shrink-0">
+            <AttendanceRing
+              percentage={overallCalc.currentPct}
+              status={overallCalc.status}
+              size={140}
+              strokeWidth={12}
+            />
+          </div>
         )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 flex-1 w-full">
+          <StatCard label="Overall %" value={overallAtt.conducted > 0 ? `${((overallAtt.attended / overallAtt.conducted) * 100).toFixed(1)}%` : "–"} accent={overallCalc?.status === "safe" ? "emerald" : overallCalc?.status === "warning" ? "amber" : "rose"} />
+          <StatCard label="Conducted" value={overallAtt.conducted} sub="total lectures" />
+          <StatCard label="Attended" value={overallAtt.attended} sub="lectures" />
+          {overallCalc && overallCalc.status !== "safe" && (
+            <div className="col-span-2 sm:col-span-3">
+              <Card className="border-amber-200 bg-amber-50">
+                <CardContent className="p-4 text-sm text-amber-800">
+                  {overallCalc.canBunk > 0
+                    ? `You can bunk ${overallCalc.canBunk} more lectures overall and still stay at ${minPct}%.`
+                    : `You need to attend ${overallCalc.mustAttend} more lectures to reach ${minPct}%.`}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Subject-wise cards */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3">Subject-wise Attendance</h2>
+        {subjectStats.length === 0 && (
+          <Card><CardContent className="py-12 text-center text-muted-foreground">No attendance data available yet. Admin will upload the weekly PDF.</CardContent></Card>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {subjectStats.map(({ subj, conducted, attended, percentage, status, calc }) => (
+            <Card key={subj.id} className={status === "critical" ? "border-red-200" : status === "warning" ? "border-amber-200" : ""}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-semibold text-sm">{subj.name}</p>
+                    <p className="text-xs text-muted-foreground">{subj.code}</p>
+                  </div>
+                  <StatusBadge status={status} />
+                </div>
+                <div className="flex items-center gap-4 mb-3">
+                  <AttendanceRing percentage={percentage} status={status} size={72} strokeWidth={7} />
+                  <div className="text-sm space-y-1">
+                    <p><span className="text-muted-foreground">Conducted:</span> <strong>{conducted}</strong></p>
+                    <p><span className="text-muted-foreground">Attended:</span> <strong>{attended}</strong></p>
+                    <p><span className="text-muted-foreground">Required:</span> <strong>{minPct}%</strong></p>
+                  </div>
+                </div>
+                {calc && (
+                  <div className={`text-xs p-2 rounded-md ${status === "safe" ? "bg-green-50 text-green-700" : status === "warning" ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>
+                    {status === "safe"
+                      ? calc.canBunk > 0 ? `Can miss ${calc.canBunk} more lectures safely.` : "At minimum threshold."
+                      : `Need to attend ${calc.mustAttend} more lectures to reach ${minPct}%.`}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
-}
-
-function Metric({ label, value, color }) {
-  const colors = { emerald: "text-emerald-600", amber: "text-amber-600", rose: "text-rose-600" };
-  return (
-    <div>
-      <p className="text-muted-foreground">{label}</p>
-      <p className={cn("font-semibold", color && colors[color])}>{value}</p>
-    </div>
-  );
-}
-
-function toneBadge(status) {
-  if (status === "safe") return "bg-emerald-100 text-emerald-700";
-  if (status === "warning") return "bg-amber-100 text-amber-700";
-  return "bg-rose-100 text-rose-700";
 }

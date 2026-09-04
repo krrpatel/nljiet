@@ -2,19 +2,17 @@ import { base44 } from "@/api/base44Client";
 
 // Demo: the portal maps the logged-in user to a student by email, falling
 // back to the first student record so the experience is always populated.
-export async function getCurrentStudent() {
-  let me = null;
-  try {
-    me = await base44.auth.me();
-  } catch {
-    me = null;
+export async function getCurrentStudent(me) {
+  if (!me) {
+    try { me = await base44.auth.me(); } catch { return null; }
   }
+  if (me?.role === "admin") return null; // admins don't need student record
   const all = await base44.entities.Students.list();
   if (me?.email) {
     const match = all.find((s) => s.email?.toLowerCase() === me.email.toLowerCase());
-    if (match) return match;
+    return match || null; // don't fall back to first student anymore
   }
-  return all[0] || null;
+  return null;
 }
 
 export async function loadPortalData() {
@@ -28,9 +26,9 @@ export async function loadPortalData() {
   return { subjects, years, attSettings, adminSettings, students };
 }
 
-export async function loadStudentAcademicData(studentId, enrollmentNumber) {
+export async function loadStudentAcademicData(studentId, enrollmentNumber, branch, semester) {
   const [attendance, results, assignments, studentAssignments, feeStatus, feeReceipts] = await Promise.all([
-    base44.entities.Attendance.filter({ student_id: studentId }),
+    base44.entities.Attendance.filter({ enrollment_number: enrollmentNumber }),
     base44.entities.Results.filter({ enrollment_number: enrollmentNumber }),
     base44.entities.Assignments.list(),
     base44.entities.StudentAssignments.filter({ student_id: studentId }),
