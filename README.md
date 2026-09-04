@@ -45,7 +45,7 @@ After signing in as an admin:
 - `/admin/departments` manages departments.
 - `/admin/academic-data` adds subjects by department/semester and adds the Octopod academic years. Enter the Octopod `AYID` (for example `9205`) and mark the current year.
 - `/admin/upload` imports attendance and result PDFs using the selected department, semester, subject, and the current academic-year UUID.
-- `/admin/assignments` adds and publishes assignments, shows student solution PDFs, and lets an admin approve or reject each submission. Approved solutions are downloadable by students from `/assignments`.
+- `/admin/assignments` adds/edits assignments with title, number, deadline, and an optional solution link; it also shows student solution PDFs and lets an admin approve or reject each submission. When no solution link is supplied, students can upload a PDF for approval. Approved solutions are downloadable by students from `/assignments`.
 - `/admin/timetable` manages Mid Sem and GTU timetable entries. Students see published entries at `/timetable` for their branch and semester.
 
 The attendance upload intentionally asks only for department, semester, and PDF. It replaces all attendance rows belonging to registered students in that department/semester and removes the source PDF after a successful import. Result uploads are partial upserts: a normal or re-exam PDF changes/adds only the students present in that file, preserving every other result row. Re-exam uploads correct an existing AB row when possible.

@@ -10,12 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Download, Loader2, Pencil, Plus, Save, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Loader2, Pencil, Plus, Save, Trash2, XCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 const BRANCHES = ["CSE", "AIML", "DS"];
 const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
-const emptyForm = { branch: "CSE", semester: "5", subject_id: "", academic_year_id: "", assignment_number: "1", title: "", description: "", deadline: "", published: true };
+const emptyForm = { branch: "CSE", semester: "5", subject_id: "", academic_year_id: "", assignment_number: "1", title: "", description: "", deadline: "", solution_link: "", published: true };
 
 function localDateTime(value) {
   if (!value) return "";
@@ -72,6 +72,7 @@ export default function AdminAssignmentsPage() {
       title: assignment.title || "",
       description: assignment.description || "",
       deadline: localDateTime(assignment.deadline),
+      solution_link: assignment.solution_link || "",
       published: assignment.published !== false,
     });
   }
@@ -93,6 +94,7 @@ export default function AdminAssignmentsPage() {
         title: form.title.trim(),
         description: form.description.trim() || null,
         deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
+        solution_link: form.solution_link.trim() || null,
         published: Boolean(form.published),
       };
       if (editingId) await api.entities.Assignments.update(editingId, payload);
@@ -166,6 +168,7 @@ export default function AdminAssignmentsPage() {
               <div className="sm:col-span-2"><Label>Title</Label><Input value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} placeholder="Solve the CN subnetting worksheet" required /></div>
               <div className="sm:col-span-2"><Label>Description</Label><Textarea value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} placeholder="Instructions for students" /></div>
               <div><Label>Deadline</Label><Input type="datetime-local" value={form.deadline} onChange={event => setForm(current => ({ ...current, deadline: event.target.value }))} /></div>
+              <div><Label>Solution link (optional)</Label><Input type="url" value={form.solution_link} onChange={event => setForm(current => ({ ...current, solution_link: event.target.value }))} placeholder="https://…" /></div>
               <div className="flex items-center gap-3 pt-6"><Switch checked={form.published} onCheckedChange={value => setForm(current => ({ ...current, published: value }))} /><Label>Published to students</Label></div>
               <Button type="submit" className="sm:col-span-2" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}{editingId ? "Update assignment" : "Add assignment"}</Button>
             </form>
@@ -178,7 +181,7 @@ export default function AdminAssignmentsPage() {
             {assignments.length === 0 && <p className="text-sm text-muted-foreground">No assignments added yet.</p>}
             {assignments.map(assignment => {
               const subject = subjects.find(item => item.id === assignment.subject_id);
-              return <div key={assignment.id} className="rounded-lg border p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">#{assignment.assignment_number} {assignment.title}</p><p className="text-xs text-muted-foreground">{subject?.name || assignment.subject_id} • {assignment.branch || subject?.branch} • Sem {assignment.semester}</p>{assignment.deadline && <p className="text-xs text-muted-foreground">Due {new Date(assignment.deadline).toLocaleString()}</p>}</div><Badge variant={assignment.published === false ? "outline" : "secondary"}>{assignment.published === false ? "Draft" : "Published"}</Badge></div><div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => togglePublished(assignment)}>{assignment.published === false ? "Publish" : "Unpublish"}</Button><Button size="icon" variant="ghost" onClick={() => editAssignment(assignment)}><Pencil className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="text-destructive" onClick={() => deleteAssignment(assignment)}><Trash2 className="h-4 w-4" /></Button></div></div>;
+              return <div key={assignment.id} className="rounded-lg border p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">#{assignment.assignment_number} {assignment.title}</p><p className="text-xs text-muted-foreground">{subject?.name || assignment.subject_id} • {assignment.branch || subject?.branch} • Sem {assignment.semester}</p>{assignment.deadline && <p className="text-xs text-muted-foreground">Due {new Date(assignment.deadline).toLocaleString()}</p>}{assignment.solution_link && <a className="mt-1 inline-flex items-center gap-1 text-xs text-primary underline" href={assignment.solution_link} target="_blank" rel="noreferrer"><ExternalLink className="h-3 w-3" />Solution link</a>}</div><Badge variant={assignment.published === false ? "outline" : "secondary"}>{assignment.published === false ? "Draft" : "Published"}</Badge></div><div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => togglePublished(assignment)}>{assignment.published === false ? "Publish" : "Unpublish"}</Button><Button size="icon" variant="ghost" onClick={() => editAssignment(assignment)}><Pencil className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="text-destructive" onClick={() => deleteAssignment(assignment)}><Trash2 className="h-4 w-4" /></Button></div></div>;
             })}
           </CardContent>
         </Card>

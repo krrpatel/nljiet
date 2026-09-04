@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { CheckCircle2, Clock, Download, FileText, Loader2, Upload } from "lucide-react";
+import { CheckCircle2, Clock, Download, ExternalLink, FileText, Loader2, Upload } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,7 +23,7 @@ export default function AssignmentsPage() {
   const assignments = useMemo(() => {
     if (!portal || !academic) return [];
     return portal.subjects
-      .filter((s) => s.semester === Number(student?.current_semester ?? student?.semester))
+      .filter((s) => s.semester === Number(student?.current_semester ?? student?.semester) && (!student?.branch || String(s.branch || "").toUpperCase() === String(student.branch).toUpperCase()))
       .flatMap((s) => academic.assignments.filter((a) => a.subject_id === s.id && a.published));
   }, [portal, academic, student]);
 
@@ -133,6 +133,7 @@ export default function AssignmentsPage() {
     const status = submission?.status || "pending";
     const deadline = assignment.deadline ? new Date(assignment.deadline) : null;
     const overdue = status !== "completed" && deadline && deadline < new Date();
+    const solutionLink = assignment.solution_link || assignment.solution_url;
     const solutionStatus = submission?.solution_status || "none";
     return (
       <Card key={assignment.id}>
@@ -146,14 +147,20 @@ export default function AssignmentsPage() {
           {assignment.description && <p className="text-sm text-muted-foreground">{assignment.description}</p>}
           {deadline && <p className="text-xs text-muted-foreground">Due: {deadline.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</p>}
           <Textarea placeholder="Add a note..." value={notes[assignment.id] ?? submission?.notes ?? ""} onChange={(e) => setNotes((n) => ({ ...n, [assignment.id]: e.target.value }))} onBlur={() => saveNotes(assignment)} className="min-h-[60px]" />
-          {solutionStatus === "pending" && <Badge variant="outline" className="border-amber-300 text-amber-700">Solution awaiting admin approval</Badge>}
-          {solutionStatus === "rejected" && <div className="rounded-md bg-rose-50 p-2 text-xs text-rose-700"><p className="font-medium">Solution rejected — upload a corrected PDF.</p>{submission.solution_review_note && <p>{submission.solution_review_note}</p>}</div>}
-          {solutionStatus === "approved" && submission.solution_pdf_url && <a className="flex items-center gap-1 text-sm text-emerald-700 underline" href={submission.solution_pdf_url} target="_blank" rel="noreferrer"><FileText className="h-4 w-4" />Your approved solution</a>}
-          {renderApprovedSolutions(assignment)}
+          {solutionLink ? (
+            <a className="inline-flex items-center gap-1.5 text-sm text-primary underline" href={solutionLink} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" />View solution</a>
+          ) : (
+            <>
+              {solutionStatus === "pending" && <Badge variant="outline" className="border-amber-300 text-amber-700">Solution awaiting admin approval</Badge>}
+              {solutionStatus === "rejected" && <div className="rounded-md bg-rose-50 p-2 text-xs text-rose-700"><p className="font-medium">Solution rejected — upload a corrected PDF.</p>{submission.solution_review_note && <p>{submission.solution_review_note}</p>}</div>}
+              {solutionStatus === "approved" && submission.solution_pdf_url && <a className="flex items-center gap-1 text-sm text-emerald-700 underline" href={submission.solution_pdf_url} target="_blank" rel="noreferrer"><FileText className="h-4 w-4" />Your approved solution</a>}
+              {renderApprovedSolutions(assignment)}
+            </>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant={status === "completed" ? "default" : "outline"} onClick={() => setStatus(assignment, "completed")}><CheckCircle2 className="mr-1.5 h-4 w-4" />Mark Done</Button>
             <Button size="sm" variant="outline" onClick={() => setStatus(assignment, "pending")}><Clock className="mr-1.5 h-4 w-4" />Not Done</Button>
-            <label className="cursor-pointer"><Button size="sm" variant="outline" asChild disabled={uploadingId === assignment.id}><span>{uploadingId === assignment.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{uploadingId === assignment.id ? "Uploading…" : "Upload Solution"}</span></Button><input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; uploadSolution(assignment, file); }} /></label>
+            {!solutionLink && <label className="cursor-pointer"><Button size="sm" variant="outline" asChild disabled={uploadingId === assignment.id}><span>{uploadingId === assignment.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{uploadingId === assignment.id ? "Uploading…" : "Upload Solution"}</span></Button><input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; uploadSolution(assignment, file); }} /></label>}
           </div>
         </CardContent>
       </Card>

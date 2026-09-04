@@ -19,6 +19,9 @@ const normalizeDbPayload = (table, payload) => {
   if (!payload || typeof payload !== "object") return payload;
   const normalized = { ...payload };
   for (const field of uuidFields) if (field in normalized && (normalized[field] === "" || normalized[field] === undefined)) normalized[field] = null;
+  // PostgreSQL `time` columns reject an empty string. Optional timetable fields
+  // are represented as NULL when the admin leaves them blank.
+  for (const field of ["start_time", "end_time"]) if (field in normalized && (normalized[field] === "" || normalized[field] === undefined)) normalized[field] = null;
   return normalized;
 };
 const legacyTimetableTables = new Set(["mid_sem_timetable", "gtu_timetable"]);
@@ -81,116 +84,6 @@ function matchesMaskedEmail(value, masked) {
   if (!pattern.includes("*")) return email === pattern;
   const [prefix,suffix] = pattern.split("*");
   return email.startsWith(prefix) && email.endsWith(suffix) && email.length > prefix.length + suffix.length;
-}
-const normalizeExamKey = value => {
-  const type = String(value || "").toLowerCase().replace(/[\s_-]/g, "");
-  if (type.includes("gtu")) return null;
-  if (type.includes("midsem1") || type.includes("mse1")) return "midsem1";
-  if (type.includes("midsem2") || type.includes("mse2")) return "midsem2";
-  return null;
-};
-const appendQuery = (value, query) => `${value}${value.includes("?") ? "&" : "?"}${query}`;
-async function supabaseListAll(table, query) {
-  const rows = [];
-  const pageSize = 1000;
-  for (let offset = 0; offset < 20000; offset += pageSize) {
-    const page = await supabaseRequest(table, "GET", supabaseKey, appendQuery(query, `limit=${pageSize}&offset=${offset}`));
-    rows.push(...(Array.isArray(page) ? page : []));
-    if (!Array.isArray(page) || page.length < pageSize) break;
-  }
-  return rows;
-}
-async function calculateResultRanks({ enrollmentNumber, branch, semester }) {
-  const enrollment = String(enrollmentNumber || "").trim();
-  if (!enrollment) throw Object.assign(new Error("Enrollment number is required"), { status: 400 });
-  const currentRows = await supabaseRequest("students", "GET", supabaseKey, `?select=id,enrollment_number,branch,semester&enrollment_number=eq.${encodeURIComponent(enrollment)}&limit=1`);
-  const currentStudent = currentRows?.[0];
-  if (!currentStudent) throw Object.assign(new Error("Student was not found"), { status: 404 });
-  const selectedBranch = String(currentStudent.branch || branch || "").trim().toUpperCase();
-  const selectedSemester = Number(semester || currentStudent.semester);
-  if (!selectedBranch || !Number.isInteger(selectedSemester) || selectedSemester < 1) {
-    throw Object.assign(new Error("Student branch or semester is missing"), { status: 422 });
-  }
-
-  const branchQuery = encodeURIComponent(selectedBranch);
-  const [subjects, students, results] = await Promise.all([
-    supabaseListAll("subjects", `?select=id,code,name,abbreviation,branch,semester,active&branch=eq.${branchQuery}&semester=eq.${selectedSemester}&active=eq.true`),
-    supabaseListAll("students", `?select=id,enrollment_number,branch,semester&branch=eq.${branchQuery}&semester=eq.${selectedSemester}`),
-    supabaseListAll("results", `?select=id,enrollment_number,subject_id,semester,exam_type,marks,max_marks,published,created_at&semester=eq.${selectedSemester}&published=eq.true`),
-  ]);
-  const expectedSubjects = subjects.filter(subject => subject.id);
-  const rankPending = reason => ({ ready: false, reason, rank: null, total: null, max: null, students_ranked: 0, subjects: expectedSubjects.length });
-  if (!expectedSubjects.length) {
-    return { branch: selectedBranch, semester: selectedSemester, subjects: [], midsem1: rankPending("subjects_not_configured"), midsem2: rankPending("subjects_not_configured") };
-  }
-
-  const studentList = [...students];
-  if (!studentList.some(student => String(student.enrollment_number) === enrollment)) studentList.push(currentStudent);
-  const studentByEnrollment = new Map(studentList.filter(student => student.enrollment_number).map(student => [String(student.enrollment_number), student]));
-  const expectedIds = expectedSubjects.map(subject => String(subject.id));
-  const latest = new Map();
-  for (const result of results) {
-    const examKey = normalizeExamKey(result.exam_type);
-    const resultEnrollment = String(result.enrollment_number || "");
-    if (!examKey || !studentByEnrollment.has(resultEnrollment) || !expectedIds.includes(String(result.subject_id))) continue;
-    const key = `${resultEnrollment}|${result.subject_id}|${examKey}`;
-    const previous = latest.get(key);
-    if (!previous || (Date.parse(result.created_at || "") || 0) >= (Date.parse(previous.created_at || "") || 0)) latest.set(key, result);
-  }
-
-  const valuesFor = (resultEnrollment, examKey) => expectedIds.map(subjectId => latest.get(`${resultEnrollment}|${subjectId}|${examKey}`));
-  const totalFor = rows => ({
-    total: rows.reduce((sum, row) => sum + (row?.marks == null ? 0 : Number(row.marks) || 0), 0),
-    max: rows.reduce((sum, row) => sum + (Number(row?.max_marks) || 60), 0),
-  });
-  const rankSingleExam = examKey => {
-    const completed = [];
-    for (const student of studentList) {
-      const studentEnrollment = String(student.enrollment_number || "");
-      const rows = valuesFor(studentEnrollment, examKey);
-      if (rows.length !== expectedIds.length || rows.some(row => !row)) continue;
-      completed.push({ enrollment_number: studentEnrollment, ...totalFor(rows) });
-    }
-    const current = completed.find(row => row.enrollment_number === enrollment);
-    if (!current) return rankPending("all_subjects_pending");
-    return {
-      ready: true,
-      rank: 1 + completed.filter(row => row.total > current.total).length,
-      total: current.total,
-      max: current.max,
-      students_ranked: completed.length,
-      subjects: expectedSubjects.length,
-    };
-  };
-  const rankCombined = () => {
-    const completed = [];
-    for (const student of studentList) {
-      const studentEnrollment = String(student.enrollment_number || "");
-      const firstRows = valuesFor(studentEnrollment, "midsem1");
-      const secondRows = valuesFor(studentEnrollment, "midsem2");
-      if (firstRows.some(row => !row) || secondRows.some(row => !row)) continue;
-      const first = totalFor(firstRows), second = totalFor(secondRows);
-      completed.push({ enrollment_number: studentEnrollment, total: first.total + second.total, max: first.max + second.max });
-    }
-    const current = completed.find(row => row.enrollment_number === enrollment);
-    if (!current) return rankPending("both_exams_pending");
-    return {
-      ready: true,
-      rank: 1 + completed.filter(row => row.total > current.total).length,
-      total: current.total,
-      max: current.max,
-      students_ranked: completed.length,
-      subjects: expectedSubjects.length,
-      basis: "MSE 1 + MSE 2",
-    };
-  };
-  return {
-    branch: selectedBranch,
-    semester: selectedSemester,
-    subjects: expectedSubjects.map(subject => ({ id: subject.id, code: subject.code, name: subject.name })),
-    midsem1: rankSingleExam("midsem1"),
-    midsem2: rankCombined(),
-  };
 }
 async function octopodValidate(enrollmentNumber) {
   const applicationId = process.env.OCTOPOD_APPLICATION_ID || enrollmentNumber;
@@ -325,14 +218,6 @@ const requestHandler = async (req, res) => {
         if (!response.ok) return json(res, response.status, {error:`HCNSec API error (${response.status})`});
       }
       return json(res,200,{message:`${cfg.provider} API test succeeded for ${cfg.model}`});
-    }
-    if (parts[0]==="api" && parts[1]==="functions" && parts[2]==="resultRank" && req.method==="POST") {
-      try {
-        return json(res, 200, await calculateResultRanks(await body(req)));
-      } catch (e) {
-        console.error("Result ranking failed:", e.message);
-        return json(res, e.status || 500, { error: e.status ? e.message : "Could not calculate result rank" });
-      }
     }
     if (parts[0]==="api" && parts[1]==="functions") return json(res,400,{error:"Function requires configuration"});
     if (req.method === "GET") { const file = u.pathname === "/" ? "/index.html" : u.pathname; const base = file.startsWith("/uploads/") ? uploadDir : path.join(root, "dist"); const target = path.join(base, file.replace(/^\/uploads\//, "")); if (fs.existsSync(target) && fs.statSync(target).isFile()) { res.writeHead(200); return fs.createReadStream(target).pipe(res); } }

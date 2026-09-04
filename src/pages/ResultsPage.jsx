@@ -25,7 +25,7 @@ function PassFailBadge({ marks, passing }) {
 }
 
 export default function ResultsPage() {
-  const { student, results, subjects, resultRank, loading, isDeptLive } = usePortal();
+  const { student, results, subjects, loading, isDeptLive } = usePortal();
 
   const subjectMap = useMemo(() => {
     const map = {};
@@ -82,7 +82,7 @@ export default function ResultsPage() {
     </div>
   );
 
-  const renderResultTable = (resultList, examLabel, examType) => {
+  const renderResultTable = (resultList, examLabel) => {
     if (resultList.length === 0) return (
       <div className="text-center py-12 text-muted-foreground">
         <p>No results published for {examLabel} yet.</p>
@@ -91,23 +91,15 @@ export default function ResultsPage() {
 
     const isMidSem = /mse|mid|remse/i.test(examLabel);
     const passingMarks = isMidSem ? PASSING_MARKS : null;
-    const rank = examType === "midsem1" ? resultRank?.midsem1 : examType === "midsem2" ? resultRank?.midsem2 : null;
-    const rankDescription = rank?.ready
-      ? `${rank.total}/${rank.max} total${rank.basis ? ` • ${rank.basis}` : ""}`
-      : rank?.reason === "all_subjects_pending" || rank?.reason === "both_exams_pending"
-        ? "Awaiting all subject results"
-        : "Not available yet";
-
     return (
       <div className="space-y-4">
         {isMidSem && (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-6">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <StatCard label="Subjects" value={resultList.length} icon={Award} />
             <StatCard label="Total Marks" value={`${resultList.reduce((sum, result) => sum + (Number(result.marks) || 0), 0)}/${60 * resultList.length}`} sub={`60 × ${resultList.length} subjects`} icon={TrendingUp} accent="blue" />
             <StatCard label="Passed" value={`${resultList.filter(result => result.marks != null && result.marks >= PASSING_MARKS).length}/${resultList.length}`} icon={CheckCircle} accent="emerald" />
             <StatCard label="Average" value={resultList.filter(result => result.marks != null).length ? (resultList.filter(result => result.marks != null).reduce((sum, result) => sum + Number(result.marks), 0) / resultList.filter(result => result.marks != null).length).toFixed(1) : "–"} sub="out of 60" icon={TrendingUp} accent="blue" />
             <StatCard label="Highest" value={resultList.some(result => result.marks != null) ? Math.max(...resultList.filter(result => result.marks != null).map(result => Number(result.marks))) : "–"} sub="out of 60" icon={Award} accent="violet" />
-            <StatCard label="Class Rank" value={rank?.ready ? `#${rank.rank}` : "Pending"} sub={rankDescription} icon={Award} accent="violet" />
           </div>
         )}
 
@@ -149,7 +141,7 @@ export default function ResultsPage() {
             </tbody>
           </table>
         </div>
-        {isMidSem && <p className="text-xs text-muted-foreground text-center">Passing marks: {PASSING_MARKS}/60 (each section: no separate cutoff; total ≥{PASSING_MARKS}){rank?.ready ? ` • Ranked among ${rank.students_ranked} students` : ""}</p>}
+        {isMidSem && <p className="text-xs text-muted-foreground text-center">Passing marks: {PASSING_MARKS}/60 (each section: no separate cutoff; total ≥{PASSING_MARKS})</p>}
       </div>
     );
   };
@@ -165,7 +157,7 @@ export default function ResultsPage() {
       <PageHeader title="Results" description={`${student.branch} • Sem ${student.semester}`} />
 
       {examTypes.length === 1 ? (
-        renderResultTable(grouped[examTypes[0]], tabLabels[examTypes[0]] || examTypes[0], examTypes[0])
+        renderResultTable(grouped[examTypes[0]], tabLabels[examTypes[0]] || examTypes[0])
       ) : (
         <Tabs defaultValue={examTypes[0]}>
           <TabsList>
@@ -173,7 +165,7 @@ export default function ResultsPage() {
           </TabsList>
           {examTypes.map(t => (
             <TabsContent key={t} value={t}>
-              {renderResultTable(grouped[t], tabLabels[t] || t, t)}
+              {renderResultTable(grouped[t], tabLabels[t] || t)}
             </TabsContent>
           ))}
         </Tabs>

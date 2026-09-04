@@ -3,6 +3,7 @@
 
 alter table public.assignments add column if not exists branch text;
 alter table public.assignments add column if not exists created_at timestamptz default now();
+alter table public.assignments add column if not exists solution_link text;
 
 alter table public.student_assignments add column if not exists solution_pdf_url text;
 alter table public.student_assignments add column if not exists solution_file_name text;

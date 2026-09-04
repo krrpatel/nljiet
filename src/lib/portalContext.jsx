@@ -63,7 +63,6 @@ export function PortalProvider({ children }) {
   // Compute convenience fields
   const subjects = portal?.subjects || [];
   const results = academic?.results || [];
-  const resultRank = academic?.resultRank || null;
   const attendance = academic?.attendance || [];
   const assignments = academic?.assignments || [];
   const studentAssignments = academic?.studentAssignments || [];
@@ -78,7 +77,7 @@ export function PortalProvider({ children }) {
     <PortalContext.Provider value={{
       student, portal, academic, loading, error, refresh,
       currentUser, isMainAdmin, isDeptAdmin, deptAdminBranch,
-      subjects, results, resultRank, attendance, assignments, studentAssignments,
+      subjects, results, attendance, assignments, studentAssignments,
       feeStatus, feeReceipts, attendanceAgg, overallAtt,
       isDeptLive, LIVE_DEPARTMENTS,
     }}>
