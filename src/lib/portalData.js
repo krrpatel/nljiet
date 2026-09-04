@@ -40,7 +40,7 @@ export async function loadPortalData() {
 export async function loadStudentAcademicData(studentId, enrollmentNumber, branch, semester) {
   const safe = promise => promise.catch(() => []);
   const localStudentId = isUuid(studentId) ? studentId : null;
-  const [attendance, results, assignments, studentAssignments, feeStatus, feeReceipts, octopodFees] = await Promise.all([
+  const [attendance, results, assignments, studentAssignments, feeStatus, feeReceipts, octopodFees, resultRank] = await Promise.all([
     safe(api.entities.Attendance.filter({ enrollment_number: enrollmentNumber })),
     safe(api.entities.Results.filter({ enrollment_number: enrollmentNumber })),
     safe(api.entities.Assignments.list()),
@@ -48,8 +48,9 @@ export async function loadStudentAcademicData(studentId, enrollmentNumber, branc
     localStudentId ? safe(api.entities.FeeStatus.filter({ student_id: localStudentId })) : Promise.resolve([]),
     localStudentId ? safe(api.entities.FeeReceipts.filter({ student_id: localStudentId })) : Promise.resolve([]),
     api.functions.invoke("octopodFees", { enrollmentNumber }).catch(() => ({ data: null })),
+    api.functions.invoke("resultRank", { enrollmentNumber, branch, semester }).catch(() => ({ data: null })),
   ]);
-  return { attendance, results, assignments, studentAssignments, feeStatus: feeStatus[0] || octopodFees.data?.feeStatus, feeReceipts: feeReceipts.length ? feeReceipts : (octopodFees.data?.feeReceipts || []), octopodProfile: octopodFees.data?.profile || null };
+  return { attendance, results, assignments, studentAssignments, resultRank: resultRank.data || null, feeStatus: feeStatus[0] || octopodFees.data?.feeStatus, feeReceipts: feeReceipts.length ? feeReceipts : (octopodFees.data?.feeReceipts || []), octopodProfile: octopodFees.data?.profile || null };
 }
 
 export function subjectById(subjects, id) {

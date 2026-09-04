@@ -5,14 +5,14 @@ import { calculateAttendancePlan, DEFAULT_TOTAL_PLANNED } from "@/lib/attendance
 import StatCard from "@/components/StatCard";
 import PageHeader from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarCheck, GraduationCap, ClipboardList, Wallet, AlertTriangle, TrendingUp } from "lucide-react";
+import { CalendarCheck, GraduationCap, ClipboardList, Wallet, AlertTriangle, TrendingUp, Award } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 
 export default function Dashboard() {
-  const { student, portal, academic, loading } = usePortal();
+  const { student, portal, academic, resultRank, loading } = usePortal();
 
   const data = useMemo(() => {
     if (!portal || !academic || !student) return null;
@@ -34,8 +34,8 @@ export default function Dashboard() {
     const pending = myAssignments.filter((a) => a.status === "pending" || a.status === "overdue").length;
     const completed = myAssignments.filter((a) => a.status === "completed").length;
     const fee = academic.feeStatus;
-    return { targetPct, overall, subjectPlans, belowMin, latestAvg, pending, completed, fee, publishedResults };
-  }, [portal, academic, student]);
+    return { targetPct, overall, subjectPlans, belowMin, latestAvg, pending, completed, fee, publishedResults, resultRank };
+  }, [portal, academic, student, resultRank]);
 
   if (loading) return <DashboardSkeleton />;
   if (!data) return <EmptyState />;
@@ -61,6 +61,8 @@ export default function Dashboard() {
         <StatCard label="Below Minimum" value={data.belowMin} sub={`Target ${data.targetPct}%`} icon={AlertTriangle} accent={data.belowMin > 0 ? "rose" : "emerald"} />
         <StatCard label="Current Semester" value={semester} sub={student.branch || "—"} icon={GraduationCap} accent="blue" />
         <StatCard label="Latest Avg" value={data.latestAvg == null ? "—" : `${data.latestAvg}%`} sub={`${data.publishedResults.length} results`} icon={TrendingUp} accent="violet" />
+        <StatCard label="MSE 1 Rank" value={data.resultRank?.midsem1?.ready ? `#${data.resultRank.midsem1.rank}` : "Pending"} sub={data.resultRank?.midsem1?.ready ? `${data.resultRank.midsem1.total}/${data.resultRank.midsem1.max} total` : "Awaiting all subjects"} icon={Award} accent="violet" />
+        <StatCard label="MSE 2 Rank" value={data.resultRank?.midsem2?.ready ? `#${data.resultRank.midsem2.rank}` : "Pending"} sub={data.resultRank?.midsem2?.ready ? `${data.resultRank.midsem2.total}/${data.resultRank.midsem2.max} • MSE 1 + MSE 2` : "Awaiting both exams"} icon={Award} accent="violet" />
         <StatCard label="Pending Assignments" value={data.pending} sub="to complete" icon={ClipboardList} accent="amber" />
         <StatCard label="Completed" value={data.completed} sub="assignments" icon={ClipboardList} accent="emerald" />
         <StatCard label="Fee Outstanding" value={data.fee && Number.isFinite(feeOutstanding) ? `₹${feeOutstanding.toLocaleString("en-IN")}` : "—"} sub={data.fee?.emi_enabled ? "EMI enabled" : "—"} icon={Wallet} accent={feeOutstanding > 0 ? "rose" : "emerald"} />
