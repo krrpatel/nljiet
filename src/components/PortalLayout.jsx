@@ -44,6 +44,7 @@ const ADMIN_NAV = [
   { to: "/admin/academic-data", label: "Subjects & Years", icon: BookOpen },
   { to: "/admin/timetable", label: "Timetable", icon: Calendar },
   { to: "/admin/upload", label: "Upload Data", icon: Upload },
+  { to: "/admin/assignments", label: "Assignments", icon: ClipboardList },
 ];
 
 function Shell() {

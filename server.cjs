@@ -12,7 +12,7 @@ const body = req => {
 const id = () => crypto.randomUUID();
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-const allowedTables = new Set(["students","subjects","academic_years","attendance","results","assignments","student_assignments","departments","admin_settings","attendance_settings","fee_status","fee_receipts","attendance_uploads","result_uploads"]);
+const allowedTables = new Set(["students","subjects","academic_years","attendance","results","assignments","student_assignments","departments","admin_settings","attendance_settings","fee_status","fee_receipts","attendance_uploads","result_uploads","mid_sem_timetable","gtu_timetable"]);
 const uuidFields = new Set(["id", "student_id", "subject_id", "academic_year_id", "assignment_id", "updated_by", "uploaded_by"]);
 const normalizeDbPayload = (table, payload) => {
   if (Array.isArray(payload)) return payload.map(row => normalizeDbPayload(table, row));
@@ -20,6 +20,15 @@ const normalizeDbPayload = (table, payload) => {
   const normalized = { ...payload };
   for (const field of uuidFields) if (field in normalized && (normalized[field] === "" || normalized[field] === undefined)) normalized[field] = null;
   return normalized;
+};
+const legacyTimetableTables = new Set(["mid_sem_timetable", "gtu_timetable"]);
+const localEntityRows = (items, filters, sort, limit) => {
+  let rows = items.filter(item => Object.entries(filters).every(([key, value]) => String(item[key] ?? "") === String(value ?? "")));
+  if (sort) {
+    const key = sort.replace(/^-/, "").replace("created_at", "created_date");
+    rows.sort((a, b) => String(a[key] || "").localeCompare(String(b[key] || "")) * (sort.startsWith("-") ? -1 : 1));
+  }
+  return limit ? rows.slice(0, Number(limit)) : rows;
 };
 async function supabaseRequest(table, method, token, pathSuffix = "", payload) {
   if (!supabaseUrl || !supabaseKey || !allowedTables.has(table)) throw new Error("Database is not configured");
@@ -219,7 +228,27 @@ const requestHandler = async (req, res) => {
       if (allowedTables.has(name.toLowerCase()) && supabaseUrl) {
         const table = name.toLowerCase(), token = (req.headers.authorization || "").replace("Bearer ", ""), query = new URLSearchParams();
         for (const [key,value] of Object.entries(filters)) if (value !== undefined && value !== null && value !== "") query.set(key, `eq.${value}`);
-        if (req.method === "GET") { const sort=(u.searchParams.get("sort")||"").replace("created_date","created_at"); if(sort)query.set("order",`${sort.replace(/^-/,"")}.${sort.startsWith("-")?"desc":"asc"}`); const limit=u.searchParams.get("limit"); if(limit)query.set("limit",limit); try { return json(res,200,await supabaseRequest(table,"GET",token,`?${query}`)); } catch(e) { if (e.status === 400 && /created_at/i.test(e.message)) { query.delete("order"); return json(res,200,await supabaseRequest(table,"GET",token,`?${query}`)); } throw e; } }
+        if (req.method === "GET") {
+          const sort=(u.searchParams.get("sort")||"").replace("created_date","created_at");
+          if(sort)query.set("order",`${sort.replace(/^-/, "")}.${sort.startsWith("-") ? "desc" : "asc"}`);
+          const limit=u.searchParams.get("limit"); if(limit)query.set("limit",limit);
+          try {
+            const remote = await supabaseRequest(table,"GET",token,`?${query}`);
+            if (legacyTimetableTables.has(table) && items.length) {
+              const local = localEntityRows(items, filters, sort, "");
+              const merged = [...remote, ...local.filter(localRow => !remote.some(remoteRow => remoteRow.id === localRow.id))];
+              return json(res,200,localEntityRows(merged, filters, sort, limit));
+            }
+            return json(res,200,remote);
+          } catch(e) {
+            if (e.status === 400 && /created_at/i.test(e.message)) {
+              query.delete("order");
+              try { return json(res,200,await supabaseRequest(table,"GET",token,`?${query}`)); } catch (retryError) { e = retryError; }
+            }
+            if (legacyTimetableTables.has(table)) return json(res,200,localEntityRows(items, filters, sort, limit));
+            throw e;
+          }
+        }
         if (req.method === "POST") return json(res,201,await supabaseRequest(table,"POST",token,"",await body(req)));
         if (req.method === "PATCH") return json(res,200,await supabaseRequest(table,"PATCH",token,`?id=eq.${encodeURIComponent(itemId)}`,await body(req)));
         if (req.method === "DELETE") { if (itemId && itemId !== "bulk") query.set("id", `eq.${itemId}`); return json(res,200,await supabaseRequest(table,"DELETE",token,`?${query}`)); }

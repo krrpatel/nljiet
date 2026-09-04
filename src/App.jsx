@@ -18,6 +18,7 @@ import FeesPage from '@/pages/FeesPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
 import AdminUploadPage from '@/pages/AdminUploadPage';
+import AdminAssignmentsPage from '@/pages/AdminAssignmentsPage';
 import AdminTimetablePage from '@/pages/AdminTimetablePage';
 import AdminDepartmentsPage from '@/pages/AdminDepartmentsPage';
 import AdminAcademicDataPage from '@/pages/AdminAcademicDataPage';
@@ -68,6 +69,7 @@ const AuthenticatedApp = () => {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/admin" element={<AdminSettingsPage />} />
           <Route path="/admin/upload" element={<AdminUploadPage />} />
+          <Route path="/admin/assignments" element={<AdminAssignmentsPage />} />
           <Route path="/admin/timetable" element={<AdminTimetablePage />} />
           <Route path="/admin/departments" element={<AdminDepartmentsPage />} />
           <Route path="/admin/academic-data" element={<AdminAcademicDataPage />} />

@@ -9,8 +9,17 @@ create table if not exists public.subjects (id uuid primary key default gen_rand
 create table if not exists public.academic_years (id uuid primary key default gen_random_uuid(), ayid int, title text not null, is_current boolean default false, created_at timestamptz default now());
 create table if not exists public.attendance (id uuid primary key default gen_random_uuid(), student_id uuid, enrollment_number text, subject_id uuid, academic_year_id uuid, semester int, week_start date, week_end date, conducted_lectures int not null, attended_lectures int not null, created_at timestamptz default now());
 create table if not exists public.results (id uuid primary key default gen_random_uuid(), student_id uuid, enrollment_number text, subject_id uuid, academic_year_id uuid, semester int, exam_type text, section_a_marks numeric, section_b_marks numeric, marks numeric, max_marks numeric, grade text, status text, published boolean default false, created_at timestamptz default now());
-create table if not exists public.assignments (id uuid primary key default gen_random_uuid(), subject_id uuid, semester int, academic_year_id uuid, assignment_number int, title text not null, description text, deadline timestamptz, attachment_path text, published boolean default false);
-create table if not exists public.student_assignments (id uuid primary key default gen_random_uuid(), assignment_id uuid, student_id uuid, status text, completed_at timestamptz, notes text);
+create table if not exists public.assignments (id uuid primary key default gen_random_uuid(), subject_id uuid, branch text, semester int, academic_year_id uuid, assignment_number int, title text not null, description text, deadline timestamptz, attachment_path text, published boolean default false, created_at timestamptz default now());
+alter table public.assignments add column if not exists branch text;
+alter table public.assignments add column if not exists created_at timestamptz default now();
+create table if not exists public.student_assignments (id uuid primary key default gen_random_uuid(), assignment_id uuid, student_id uuid, status text, completed_at timestamptz, notes text, solution_pdf_url text, solution_file_name text, solution_status text default 'none', solution_submitted_at timestamptz, solution_reviewed_at timestamptz, solution_review_note text, created_at timestamptz default now());
+alter table public.student_assignments add column if not exists solution_pdf_url text;
+alter table public.student_assignments add column if not exists solution_file_name text;
+alter table public.student_assignments add column if not exists solution_status text default 'none';
+alter table public.student_assignments add column if not exists solution_submitted_at timestamptz;
+alter table public.student_assignments add column if not exists solution_reviewed_at timestamptz;
+alter table public.student_assignments add column if not exists solution_review_note text;
+alter table public.student_assignments add column if not exists created_at timestamptz default now();
 create table if not exists public.departments (id uuid primary key default gen_random_uuid(), name text not null, code text not null, description text, active boolean default true, admin_user_ids uuid[]);
 create table if not exists public.admin_settings (id uuid primary key default gen_random_uuid(), whatsapp_number text, whatsapp_enabled boolean default false, support_message text, minimum_attendance_percentage numeric default 75, active_semester int default 1, current_academic_year_id uuid, updated_by uuid, updated_at timestamptz default now());
 alter table public.admin_settings add column if not exists maximum_lectures int default 250;
@@ -21,4 +30,7 @@ create table if not exists public.attendance_uploads (id uuid primary key defaul
 create table if not exists public.result_uploads (id uuid primary key default gen_random_uuid(), branch text, semester int, academic_year_id uuid, subject_id uuid, subject_code text, exam_type text, exam_number int, pdf_url text, status text, records_imported int default 0, error_message text, uploaded_by uuid, processed_at timestamptz);
 alter table public.attendance_uploads add column if not exists created_at timestamptz default now();
 alter table public.result_uploads add column if not exists created_at timestamptz default now();
+create table if not exists public.mid_sem_timetable (id uuid primary key default gen_random_uuid(), exam_number int not null, subject_id uuid, branch text not null, semester int not null, academic_year_id uuid, exam_date date not null, start_time time, end_time time, venue text, syllabus_pdf_url text, subject_code text, subject_name text, is_completed boolean default false, published boolean default true, created_at timestamptz default now());
+create table if not exists public.gtu_timetable (id uuid primary key default gen_random_uuid(), subject_id uuid, branch text not null, semester int not null, academic_year_id uuid, exam_date date not null, start_time time, end_time time, venue text, subject_code text, subject_name text, published boolean default true, created_at timestamptz default now());
 insert into storage.buckets (id,name,public) values ('portal-files','portal-files',true) on conflict (id) do nothing;
+update storage.buckets set public = true where id = 'portal-files';

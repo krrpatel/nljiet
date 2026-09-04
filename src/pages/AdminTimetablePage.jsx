@@ -40,11 +40,12 @@ export default function AdminTimetablePage() {
 
   async function loadData() {
     setLoading(true);
+    const safe = request => request.catch(() => []);
     const [subs, years, mid, gtu] = await Promise.all([
-      api.entities.Subjects.list(),
-      api.entities.AcademicYears.list(),
-      api.entities.MidSemTimetable.list("-exam_date"),
-      api.entities.GTUTimetable.list("-exam_date"),
+      safe(api.entities.Subjects.list()),
+      safe(api.entities.AcademicYears.list()),
+      safe(api.entities.MidSemTimetable.list("-exam_date")),
+      safe(api.entities.GTUTimetable.list("-exam_date")),
     ]);
     setSubjects(subs);
     setAcademicYears(years);
@@ -66,74 +67,93 @@ export default function AdminTimetablePage() {
   async function saveMidSem(e) {
     e.preventDefault();
     setSaving(true);
-    const subj = subjects.find(s => s.id === midSemForm.subject_id);
-    const payload = {
-      ...midSemForm,
-      exam_number: parseInt(midSemForm.exam_number),
-      semester: parseInt(midSemForm.semester),
-      subject_code: subj?.code || "",
-      subject_name: subj?.name || "",
-    };
-    if (editingId) {
-      await api.entities.MidSemTimetable.update(editingId, payload);
-      toast({ title: "Timetable updated" });
-    } else {
-      await api.entities.MidSemTimetable.create(payload);
-      toast({ title: "Timetable entry added" });
+    try {
+      if (!midSemForm.subject_id || !midSemForm.exam_date) throw new Error("Subject and exam date are required.");
+      const subj = subjects.find(s => s.id === midSemForm.subject_id);
+      const payload = { ...midSemForm, exam_number: parseInt(midSemForm.exam_number), semester: parseInt(midSemForm.semester), subject_code: subj?.code || "", subject_name: subj?.name || "" };
+      if (editingId) {
+        await api.entities.MidSemTimetable.update(editingId, payload);
+        toast({ title: "Timetable updated" });
+      } else {
+        await api.entities.MidSemTimetable.create(payload);
+        toast({ title: "Timetable entry added" });
+      }
+      setMidSemForm({ ...emptyMidSem, academic_year_id: midSemForm.academic_year_id });
+      setEditingId(null);
+      setMidSemDialog(false);
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not save timetable", description: error.message.includes("mid_sem_timetable") ? "Run the timetable Supabase migration first." : error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setMidSemForm({ ...emptyMidSem, academic_year_id: midSemForm.academic_year_id });
-    setEditingId(null);
-    setMidSemDialog(false);
-    setSaving(false);
-    loadData();
   }
 
   async function saveGTU(e) {
     e.preventDefault();
     setSaving(true);
-    const subj = subjects.find(s => s.id === gtuForm.subject_id);
-    const payload = {
-      ...gtuForm,
-      semester: parseInt(gtuForm.semester),
-      subject_code: subj?.code || "",
-      subject_name: subj?.name || "",
-    };
-    if (editingId) {
-      await api.entities.GTUTimetable.update(editingId, payload);
-      toast({ title: "Timetable updated" });
-    } else {
-      await api.entities.GTUTimetable.create(payload);
-      toast({ title: "GTU timetable entry added" });
+    try {
+      if (!gtuForm.subject_id || !gtuForm.exam_date) throw new Error("Subject and exam date are required.");
+      const subj = subjects.find(s => s.id === gtuForm.subject_id);
+      const payload = { ...gtuForm, semester: parseInt(gtuForm.semester), subject_code: subj?.code || "", subject_name: subj?.name || "" };
+      if (editingId) {
+        await api.entities.GTUTimetable.update(editingId, payload);
+        toast({ title: "Timetable updated" });
+      } else {
+        await api.entities.GTUTimetable.create(payload);
+        toast({ title: "GTU timetable entry added" });
+      }
+      setGtuForm({ ...emptyGTU, academic_year_id: gtuForm.academic_year_id });
+      setEditingId(null);
+      setGtuDialog(false);
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not save timetable", description: error.message.includes("gtu_timetable") ? "Run the timetable Supabase migration first." : error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setGtuForm({ ...emptyGTU, academic_year_id: gtuForm.academic_year_id });
-    setEditingId(null);
-    setGtuDialog(false);
-    setSaving(false);
-    loadData();
   }
 
   async function toggleMidSemComplete(entry) {
-    await api.entities.MidSemTimetable.update(entry.id, { is_completed: !entry.is_completed });
-    loadData();
+    try {
+      await api.entities.MidSemTimetable.update(entry.id, { is_completed: !entry.is_completed });
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not update timetable", description: error.message, variant: "destructive" });
+    }
   }
 
   async function deleteMidSem(id) {
-    await api.entities.MidSemTimetable.delete(id);
-    loadData();
+    if (!window.confirm("Delete this timetable entry?")) return;
+    try {
+      await api.entities.MidSemTimetable.delete(id);
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not delete timetable entry", description: error.message, variant: "destructive" });
+    }
   }
 
   async function deleteGTU(id) {
-    await api.entities.GTUTimetable.delete(id);
-    loadData();
+    if (!window.confirm("Delete this timetable entry?")) return;
+    try {
+      await api.entities.GTUTimetable.delete(id);
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not delete timetable entry", description: error.message, variant: "destructive" });
+    }
   }
 
   async function handleSyllabusUpload(e, entryId) {
     const file = e.target.files[0];
     if (!file) return;
-    const { file_url } = await api.integrations.Core.UploadFile({ file });
-    await api.entities.MidSemTimetable.update(entryId, { syllabus_pdf_url: file_url });
-    toast({ title: "Syllabus uploaded" });
-    loadData();
+    try {
+      const { file_url } = await api.integrations.Core.UploadFile({ file });
+      await api.entities.MidSemTimetable.update(entryId, { syllabus_pdf_url: file_url });
+      toast({ title: "Syllabus uploaded" });
+      await loadData();
+    } catch (error) {
+      toast({ title: "Could not upload syllabus", description: error.message, variant: "destructive" });
+    }
   }
 
   const filteredMid = midSemEntries.filter(e => e.branch === filterBranch && String(e.semester) === filterSem);

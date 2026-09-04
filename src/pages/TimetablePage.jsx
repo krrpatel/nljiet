@@ -45,9 +45,10 @@ export default function TimetablePage() {
 
   async function loadTimetables() {
     setLoading(true);
+    const safe = request => request.catch(() => []);
     const [mid, gtuData] = await Promise.all([
-      api.entities.MidSemTimetable.filter({ branch: student.branch, semester: student.semester, published: true }, "exam_date"),
-      api.entities.GTUTimetable.filter({ branch: student.branch, semester: student.semester, published: true }, "exam_date"),
+      safe(api.entities.MidSemTimetable.filter({ branch: student.branch, semester: Number(student.semester), published: true }, "exam_date")),
+      safe(api.entities.GTUTimetable.filter({ branch: student.branch, semester: Number(student.semester), published: true }, "exam_date")),
     ]);
     setMidSem(mid);
     setGtu(gtuData);
