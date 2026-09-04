@@ -119,15 +119,19 @@ export default function AttendancePage() {
               <Progress value={Math.min(100, overallCalc.currentPct || 0)} />
               <div className="flex justify-between text-xs text-muted-foreground"><span>{overallAtt.attended} attended of {overallAtt.conducted} conducted</span><span>{overallCalc.total} total planned</span></div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <StatCard label="Can miss" value={overallCalc.canBunk} sub={`of ${overallCalc.remaining} remaining`} accent="emerald" />
               <StatCard label="Must attend" value={overallCalc.mustAttend} sub={`to finish at ${targetPct}%`} accent="blue" />
               <StatCard label="Planned total" value={overallCalc.total} sub={`admin maximum ${maximumLectures}`} accent="violet" />
+              <StatCard label="Maximum possible" value={overallCalc.maxPossiblePct == null ? "–" : `${overallCalc.maxPossiblePct}%`} sub={`if all ${overallCalc.remaining} remaining are attended`} accent="emerald" />
             </div>
             <p className="text-xs text-muted-foreground">
               {overallCalc.achievable
                 ? `You can miss ${overallCalc.canBunk} of the ${overallCalc.remaining} lectures still available and finish at or above ${targetPct}%.`
                 : `The ${targetPct}% target is not reachable with the current ${overallCalc.total}-lecture limit; attend every remaining lecture.`}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Maximum possible attendance is calculated as ({overallCalc.attended} attended + {overallCalc.remaining} remaining) / {overallCalc.total} total lectures.
             </p>
           </CardContent>
         </Card>
