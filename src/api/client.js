@@ -64,6 +64,20 @@ const fn = async (name, data) => {
   return { data: output };
 };
 
+const computeRank = async data => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers = { 'Content-Type': 'application/json' };
+  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  const response = await fetch('/api/rank-checker/compute', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(data || {}),
+  });
+  const output = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(output.error || 'Rank computation failed');
+  return output;
+};
+
 export const api = {
   entities: new Proxy({}, { get: (_, name) => entity(name) }),
   auth: {
@@ -99,6 +113,7 @@ export const api = {
     setToken: () => {},
   },
   functions: { invoke: fn },
+  rankChecker: { compute: computeRank },
   integrations: {
     Core: {
       UploadFile: async ({ file, folder }) => {

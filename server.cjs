@@ -138,10 +138,17 @@ async function proxyRankChecker(req, res, requestUrl) {
     const { default: rankChecker } = await import("./rankchecker/api/index.js");
     return rankChecker(req, res);
   }
-  if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
-  const target = new URL("/api/rank-checker", rankCheckerServiceUrl);
+  if (req.method !== "GET" && req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
+  const target = new URL(req.method === "POST" ? "/api/rank-checker/compute" : "/api/rank-checker", rankCheckerServiceUrl);
   requestUrl.searchParams.forEach((value, key) => target.searchParams.set(key, value));
-  const response = await fetch(target, { headers: { Accept: "application/json" } });
+  const headers = { Accept: "application/json" };
+  if (req.headers.authorization) headers.Authorization = req.headers.authorization;
+  let requestBody;
+  if (req.method === "POST") {
+    requestBody = await body(req);
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(target, { method: req.method, headers, body: requestBody === undefined ? undefined : JSON.stringify(requestBody) });
   const contentType = response.headers.get("content-type") || "application/json";
   res.writeHead(response.status, { "Content-Type": contentType, "Cache-Control": "no-store" });
   res.end(Buffer.from(await response.arrayBuffer()));

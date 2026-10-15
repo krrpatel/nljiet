@@ -1,4 +1,5 @@
 import roster from "../roster.json" with { type: "json" };
+import { createHash } from "node:crypto";
 
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RANK_RATE_LIMIT_WINDOW_MS || 60_000);
 const RATE_LIMIT_MAX = Number(process.env.RANK_RATE_LIMIT_MAX || 30);
@@ -73,6 +74,100 @@ async function supabaseRows(table, params = "") {
   return rows;
 }
 
+async function supabaseWrite(table, method, params = "", payload, prefer = "return=minimal") {
+  const base = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!base || !key) throw new Error("Supabase service role is not configured on the server");
+  const response = await fetch(`${base}/rest/v1/${table}${params}`, {
+    method,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      Prefer: prefer,
+    },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || data.error || `Could not update ${table}`);
+  return data;
+}
+
+async function readBody(req) {
+  if (req.body && typeof req.body === "object") return req.body;
+  return new Promise(resolve => {
+    let value = "";
+    req.on("data", chunk => { value += chunk; });
+    req.on("end", () => {
+      try { resolve(JSON.parse(value || "{}")); } catch { resolve({}); }
+    });
+  });
+}
+
+async function isAdminRequest(req, branch) {
+  const base = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
+  if (!base) return true; // Local JSON fallback has no Supabase auth provider.
+  const token = String(req.headers?.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  const publicKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!token || !publicKey) return false;
+  const response = await fetch(`${base}/auth/v1/user`, { headers: { apikey: publicKey, Authorization: `Bearer ${token}` } });
+  const user = await response.json().catch(() => ({}));
+  if (!response.ok || !user?.id) return false;
+  const configuredAdmins = String(process.env.VITE_ADMIN_EMAILS || process.env.ADMIN_EMAILS || "")
+    .split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
+  const isMainAdmin = user.role === "admin"
+    || user.user_metadata?.role === "admin"
+    || user.app_metadata?.role === "admin"
+    || configuredAdmins.includes(String(user.email || "").toLowerCase());
+  if (isMainAdmin) return true;
+  try {
+    const departments = await supabaseRows("departments", "select=id,code,admin_user_ids");
+    return departments.some(department => String(department.code || "").toUpperCase() === branch
+      && Array.isArray(department.admin_user_ids)
+      && department.admin_user_ids.includes(user.id));
+  } catch {
+    return false;
+  }
+}
+
+function cacheKey({ branch, semester, academicYearId }) {
+  return `${branch}|${semester}|${academicYearId || "all"}|mse1+mse2`;
+}
+
+function sourceSignature(rows, subjects, students, options) {
+  const subjectMap = new Map(subjects.map(subject => [String(subject.id), subject]));
+  const studentMap = new Map(students.map(student => [String(student.enrollment_number), student]));
+  const selectedRows = rows
+    .filter(row => normalizeExam(row.exam_type))
+    .filter(row => !options.academicYearId || !row.academic_year_id || String(row.academic_year_id) === options.academicYearId)
+    .map(row => {
+      const identity = identityFor(row, subjectMap, studentMap);
+      return { row, identity };
+    })
+    .filter(({ identity }) => identity.branch === options.branch || !identity.branch)
+    .map(({ row }) => [
+      row.id,
+      row.enrollment_number,
+      row.subject_id,
+      row.exam_type,
+      row.marks,
+      row.section_a_marks,
+      row.section_b_marks,
+      row.max_marks,
+      row.roll_number,
+      row.branch,
+      row.division,
+      row.full_name,
+      row.academic_year_id,
+      row.created_at,
+    ])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  // The signature is intentionally based only on result rows. Changes to
+  // unrelated subject metadata or student profile data must not force a rank
+  // rebuild when no new/changed subject marks were uploaded.
+  return createHash("sha256").update(JSON.stringify({ rows: selectedRows })).digest("hex");
+}
+
 function profileName(profile) {
   const student = profile?.data || profile || {};
   return first(student, ["StudentFullName", "fullName", "name"]) || [student.FirstName, student.MiddleName, student.LastName].filter(Boolean).join(" ").trim();
@@ -126,8 +221,7 @@ function allocateDivisions(students, capacity) {
   let division = 1;
   let count = 0;
   let previousScore = null;
-  const divisionRolls = new Map();
-  return students.map(student => {
+  return students.map((student, index) => {
     if (count >= capacity && student.ranking_score !== previousScore) {
       division += 1;
       count = 0;
@@ -135,8 +229,10 @@ function allocateDivisions(students, capacity) {
     count += 1;
     previousScore = student.ranking_score;
     const calculatedDivision = `D${division}`;
-    const newRollNumber = (divisionRolls.get(calculatedDivision) || 0) + 1;
-    divisionRolls.set(calculatedDivision, newRollNumber);
+    // New roll numbers are the actual global position in the sorted cohort,
+    // not a reset-to-1 number inside each division. This keeps D3, for
+    // example, continuing from the final roll number of D2.
+    const newRollNumber = index + 1;
     return {
       ...student,
       calculated_division: calculatedDivision,
@@ -201,7 +297,139 @@ function aggregate(rows, subjects, students, options) {
   return { students: allocateDivisions(calculated, options.capacity), subjectIds, maxTotal };
 }
 
+function aggregateCached(rows, run, capacity) {
+  const calculated = rows.map(row => {
+    const subjectScores = Array.isArray(row.subject_scores)
+      ? row.subject_scores
+      : typeof row.subject_scores === "string"
+        ? JSON.parse(row.subject_scores || "[]")
+        : [];
+    const totalMarks = numberOrNull(row.total_marks) || 0;
+    return {
+      enrollment_number: String(row.enrollment_number || ""),
+      roll_number: numberOrNull(row.roll_number),
+      full_name: row.full_name || "",
+      source_division: row.source_division || null,
+      branch: row.branch || "",
+      midsem1_total: numberOrNull(row.midsem1_total) || 0,
+      midsem2_total: numberOrNull(row.midsem2_total) || 0,
+      total_marks: totalMarks,
+      max_marks: Number(run?.subject_count || 0) * 2 * 60 || 720,
+      ranking_score: Math.ceil(totalMarks / 4),
+      completed_entries: subjectScores.reduce((count, subject) => count + Number(subject.midsem1 != null) + Number(subject.midsem2 != null), 0),
+      subject_scores: subjectScores,
+    };
+  }).sort((a, b) => b.ranking_score - a.ranking_score || b.total_marks - a.total_marks || String(a.enrollment_number).localeCompare(String(b.enrollment_number)));
+  const subjectIds = [...new Set(calculated.flatMap(student => student.subject_scores.map(subject => String(subject.subject_id || "")).filter(Boolean)))];
+  return { students: allocateDivisions(calculated, capacity), subjectIds, maxTotal: Number(run?.subject_count || subjectIds.length || 6) * 2 * 60 };
+}
+
+async function loadCache(cacheKeyValue) {
+  try {
+    const [runs, rows] = await Promise.all([
+      supabaseRows("rank_cache_runs", `cache_key=eq.${encodeURIComponent(cacheKeyValue)}&limit=1`),
+      supabaseRows("rank_cache", `cache_key=eq.${encodeURIComponent(cacheKeyValue)}&order=enrollment_number.asc`),
+    ]);
+    return { run: runs[0] || null, rows };
+  } catch (error) {
+    // The additive cache migration may not have been applied yet. Preserve
+    // the current raw-results path until it is available.
+    console.warn("Rank cache unavailable; using raw results:", error.message);
+    return { run: null, rows: [] };
+  }
+}
+
+async function saveCache(cacheKeyValue, options, signature, result, rows) {
+  const computedAt = new Date().toISOString();
+  const cacheRows = result.students.map(student => ({
+    cache_key: cacheKeyValue,
+    branch: options.branch,
+    semester: options.semester,
+    academic_year_id: options.academicYearId || null,
+    enrollment_number: student.enrollment_number,
+    roll_number: student.roll_number,
+    source_division: student.source_division,
+    full_name: student.full_name,
+    midsem1_total: student.midsem1_total,
+    midsem2_total: student.midsem2_total,
+    total_marks: student.total_marks,
+    // Deliberately raw subject values only. No ranking_score or ceiling value.
+    subject_scores: student.subject_scores,
+    source_signature: signature,
+    computed_at: computedAt,
+  }));
+
+  await supabaseWrite("rank_cache", "DELETE", `?cache_key=eq.${encodeURIComponent(cacheKeyValue)}`);
+  for (let index = 0; index < cacheRows.length; index += 500) {
+    await supabaseWrite("rank_cache", "POST", "", cacheRows.slice(index, index + 500), "return=minimal");
+  }
+  const run = {
+    cache_key: cacheKeyValue,
+    branch: options.branch,
+    semester: options.semester,
+    academic_year_id: options.academicYearId || null,
+    exam_scope: "midsem1+midsem2",
+    source_signature: signature,
+    row_count: cacheRows.length,
+    subject_count: result.subjectIds.length,
+    computed_at: computedAt,
+    updated_at: computedAt,
+  };
+  await supabaseWrite("rank_cache_runs", "POST", "?on_conflict=cache_key", run, "resolution=merge-duplicates,return=minimal");
+  return { ...run, rawRowCount: rows.length };
+}
+
+async function computeRankCache(req, res) {
+  const payload = await readBody(req);
+  const branch = String(payload.branch || process.env.OCTOPOD_DEFAULT_BRANCH || "CSE").trim().toUpperCase();
+  const semester = Number(payload.semester || process.env.OCTOPOD_DEFAULT_SEMESTER || 5);
+  const academicYearId = String(payload.academicYearId || "").trim();
+  if (!(await isAdminRequest(req, branch))) return json(res, 403, { error: "Only an authorized admin can compute the rank cache." });
+  const options = { branch, semester, academicYearId, capacity: 40 };
+  const [rows, subjects, students] = await Promise.all([
+    supabaseRows("results", `semester=eq.${encodeURIComponent(semester)}&order=created_at.asc`),
+    supabaseRows("subjects", `semester=eq.${encodeURIComponent(semester)}&active=eq.true`),
+    supabaseRows("students", "select=*")
+  ]);
+  const subjectMap = new Map(subjects.map(subject => [String(subject.id), subject]));
+  const studentMap = new Map(students.map(student => [String(student.enrollment_number), student]));
+  const branchRows = rows.filter(row => normalizeExam(row.exam_type))
+    .filter(row => !academicYearId || !row.academic_year_id || String(row.academic_year_id) === academicYearId)
+    .filter(row => {
+      const identity = identityFor(row, subjectMap, studentMap);
+      return identity.branch === branch || !identity.branch;
+    });
+  if (!branchRows.length) {
+    return json(res, 200, { status: "no_subject_marks", message: `No MSE subject marks found for ${branch}, semester ${semester}. Rank computation is not needed.` });
+  }
+
+  const key = cacheKey(options);
+  const signature = sourceSignature(rows, subjects, students, options);
+  const existing = await loadCache(key);
+  if (existing.run?.source_signature === signature && existing.rows.length) {
+    return json(res, 200, {
+      status: "up_to_date",
+      message: "No new subject marks were added. The existing rank cache is already current.",
+      cache: { cacheKey: key, rowCount: existing.rows.length, computedAt: existing.run.computed_at }
+    });
+  }
+
+  // This deliberately aggregates the complete results response. It is only
+  // called by the admin button, never by each student rank lookup.
+  const result = aggregate(rows, subjects, students, options);
+  const saved = await saveCache(key, options, signature, result, rows);
+  return json(res, 200, {
+    status: "computed",
+    message: `Rank cache computed from ${rows.length} result rows.`,
+    cache: { cacheKey: key, rowCount: saved.row_count, subjectCount: saved.subject_count, computedAt: saved.computed_at }
+  });
+}
+
 export default async function handler(req, res) {
+  if (req.method === "POST") {
+    try { return await computeRankCache(req, res); }
+    catch (error) { console.error("Rank cache computation failed:", error.message); return json(res, 500, { error: "Rank cache computation failed. Confirm the cache migration and Supabase service-role environment variable." }); }
+  }
   if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
   if (!allowRequest(req, res)) return;
   try {
@@ -213,19 +441,37 @@ export default async function handler(req, res) {
     const capacity = Math.min(40, Math.max(30, Number(url.searchParams.get("capacity") || 40)));
     const academicYearId = String(url.searchParams.get("academicYearId") || "").trim();
     if (!lookup) return json(res, 400, { error: "Enter an enrollment number or current roll number." });
-    const [rows, subjects, students] = await Promise.all([
-      supabaseRows("results", `semester=eq.${encodeURIComponent(semester)}&order=created_at.asc`),
-      supabaseRows("subjects", `semester=eq.${encodeURIComponent(semester)}&active=eq.true`),
-      supabaseRows("students", "select=*")
-    ]);
-    const subjectMap = new Map(subjects.map(subject => [String(subject.id), subject]));
-    const studentMap = new Map(students.map(student => [String(student.enrollment_number), student]));
-    const candidates = rows.map(row => identityFor(row, subjectMap, studentMap)).filter(item => item.branch === branch || !item.branch);
+    const key = cacheKey({ branch, semester, academicYearId });
+    const cached = await loadCache(key);
+    let rows = [];
+    let result;
+    let candidates;
+    let availableExams;
+    if (cached.run && cached.rows.length) {
+      candidates = cached.rows.filter(item => item.branch === branch || !item.branch).map(item => ({
+        enrollment_number: String(item.enrollment_number || ""),
+        roll_number: numberOrNull(item.roll_number),
+        branch: item.branch || branch,
+      }));
+      result = aggregateCached(cached.rows.filter(item => item.branch === branch || !item.branch), cached.run, capacity);
+      availableExams = ["midsem1", "midsem2"].filter(exam => result.students.some(student => student.subject_scores.some(subject => subject[exam] != null)));
+    } else {
+      const [rawRows, subjects, students] = await Promise.all([
+        supabaseRows("results", `semester=eq.${encodeURIComponent(semester)}&order=created_at.asc`),
+        supabaseRows("subjects", `semester=eq.${encodeURIComponent(semester)}&active=eq.true`),
+        supabaseRows("students", "select=*")
+      ]);
+      rows = rawRows;
+      const subjectMap = new Map(subjects.map(subject => [String(subject.id), subject]));
+      const studentMap = new Map(students.map(student => [String(student.enrollment_number), student]));
+      candidates = rows.map(row => identityFor(row, subjectMap, studentMap)).filter(item => item.branch === branch || !item.branch);
+      result = aggregate(rows, subjects, students, { branch, semester, academicYearId, capacity });
+      availableExams = [...new Set(rows.map(row => normalizeExam(row.exam_type)).filter(Boolean))].sort();
+    }
     const byEnrollment = lookupType === "roll" || (lookupType === "auto" && !/^\d{10,14}$/.test(lookup))
       ? candidates.find(item => String(item.roll_number) === lookup)
       : candidates.find(item => item.enrollment_number === lookup);
     if (!byEnrollment) return json(res, 404, { error: "No result record matched that enrollment number or current roll number." });
-    const result = aggregate(rows, subjects, students, { branch, semester, academicYearId, capacity });
     const target = result.students.find(student => student.enrollment_number === byEnrollment.enrollment_number);
     if (!target) return json(res, 404, { error: "The student was found, but no rankable MSE records exist for this cohort." });
     try { target.full_name = await octopodName(target.enrollment_number) || target.full_name; } catch { /* Stored result name remains a safe fallback. */ }
@@ -239,7 +485,8 @@ export default async function handler(req, res) {
       students: divisionStudents,
       divisions,
       settings: { branch, semester, capacity, maxDivisions: 6, maxMarks: result.maxTotal, normalizedRule: "ceil(total marks / 4)" },
-      availableExams: [...new Set(rows.map(row => normalizeExam(row.exam_type)).filter(Boolean))].sort()
+      availableExams,
+      cache: cached.run ? { computedAt: cached.run.computed_at, sourceSignature: cached.run.source_signature } : null
     });
   } catch (error) {
     console.error("Rank checker failed:", error.message);

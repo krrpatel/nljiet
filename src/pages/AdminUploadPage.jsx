@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, FileText, CheckCircle, AlertCircle, Clock, Loader2, Trash2 } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, Clock, Loader2, Trash2, Calculator } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import PageHeader from "@/components/PageHeader";
 import { parseAttendancePdf, parseResultPdf } from "@/lib/pdfPipeline";
@@ -77,6 +77,7 @@ export default function AdminUploadPage() {
   // Result upload form
   const [resForm, setResForm] = useState({ branch: "CSE", semester: "5", subject_id: "", exam_type: "midsem1", exam_number: "1", academic_year_id: "", file: null });
   const [resUploading, setResUploading] = useState(false);
+  const [rankComputing, setRankComputing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -322,6 +323,28 @@ export default function AdminUploadPage() {
     finally { setResUploading(false); }
   }
 
+  async function handleComputeRank() {
+    setRankComputing(true);
+    try {
+      const result = await api.rankChecker.compute({
+        branch: resForm.branch,
+        semester: parseInt(resForm.semester, 10),
+        academicYearId: resForm.academic_year_id || null,
+      });
+      if (result.status === "no_subject_marks") {
+        toast({ title: "No rank computation needed", description: result.message });
+      } else if (result.status === "up_to_date") {
+        toast({ title: "Rank cache is already current", description: "No new subject marks were added, so the existing cache was kept." });
+      } else {
+        toast({ title: "Rank computed successfully", description: `${result.cache?.rowCount || 0} students cached from all saved result rows.` });
+      }
+    } catch (error) {
+      toast({ title: "Rank computation failed", description: error.message, variant: "destructive" });
+    } finally {
+      setRankComputing(false);
+    }
+  }
+
   const statusBadge = (status) => {
     const map = { done: "default", error: "destructive", processing: "secondary", pending: "outline" };
     const icons = { done: CheckCircle, error: AlertCircle, processing: Loader2, pending: Clock };
@@ -398,7 +421,15 @@ export default function AdminUploadPage() {
 
         <TabsContent value="results" className="space-y-6">
           <Card>
-            <CardHeader><CardTitle>Upload Result PDF</CardTitle></CardHeader>
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle>Upload Result PDF</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Compute Rank reads every saved MSE result row and refreshes the rank cache.</p>
+              </div>
+              <Button type="button" variant="outline" onClick={handleComputeRank} disabled={rankComputing || resUploading}>
+                {rankComputing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Computing…</> : <><Calculator className="mr-2 h-4 w-4" />Compute Rank</>}
+              </Button>
+            </CardHeader>
             <CardContent>
               <form onSubmit={handleResultUpload} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
