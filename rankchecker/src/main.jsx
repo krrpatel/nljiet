@@ -17,20 +17,12 @@ import "./styles.css";
 const initialForm = { lookup: "", lookupType: "enrollment", branch: "CSE", semester: "5", capacity: "40" };
 
 const subjectAbbreviations = {
+  "COMPUTER NETWORKS": "CN",
+  "SYSTEM SOFTWARE": "SS",
   "MICROPROCESSOR AND INTERFACING": "MI",
-  "DATABASE MANAGEMENT SYSTEM": "DBMS",
-  "DESIGN AND ANALYSIS OF ALGORITHM": "DAA",
-  "OPERATING SYSTEM": "OS",
-  "COMPUTER NETWORK": "CN",
-  "OBJECT ORIENTED PROGRAMMING": "OOP",
-  "PROBABILITY AND STATISTICS": "PS",
-  "DISCRETE MATHEMATICS": "DM",
-  "SOFTWARE ENGINEERING": "SE",
-  "WEB TECHNOLOGY": "WT",
-  "ARTIFICIAL INTELLIGENCE": "AI",
-  "MACHINE LEARNING": "ML",
-  "COMPUTER GRAPHICS": "CG",
-  "DATA SCIENCE": "DS",
+  "PYTHON FOR DATA SCIENCE": "PDS",
+  "WEB APPLICATION AND DEVELOPMENT": "WAD",
+  "OCCUPATIONAL HEALTH AND SAFETY MANAGEMENT": "OSM",
 };
 
 function abbreviatedSubject(subject) {
