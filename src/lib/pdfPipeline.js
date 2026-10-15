@@ -11,12 +11,26 @@ export async function extractPdfRows(file) {
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo);
     const content = await page.getTextContent();
-    const pageRows = [];
-    for (const item of content.items.filter(item => clean(item.str))) {
-      const y = Math.round(item.transform[5]);
-      let row = pageRows.find(candidate => Math.abs(candidate.y - y) <= 2);
-      if (!row) { row = { y, items: [] }; pageRows.push(row); }
-      row.items.push({ x: item.transform[4], text: clean(item.str) });
+    const items = content.items
+      .filter(item => clean(item.str))
+      .map(item => ({ x: item.transform[4], y: item.transform[5], text: clean(item.str) }));
+    const dataAnchors = items.filter(item => enrollment(item.text));
+    const assigned = new Set();
+    const pageRows = dataAnchors.map(anchor => {
+      const rowItems = items.filter((item, itemIndex) => {
+        if (Math.abs(item.y - anchor.y) > 9) return false;
+        assigned.add(itemIndex);
+        return true;
+      });
+      return { y: anchor.y, items: rowItems };
+    });
+    // Keep non-data headers and footers available to the attendance parser.
+    const remaining = items.filter((_, itemIndex) => !assigned.has(itemIndex));
+    for (const item of remaining) {
+      const y = Math.round(item.y);
+      let row = pageRows.find(candidate => !candidate.data && Math.abs(candidate.y - y) <= 2);
+      if (!row) { row = { y, items: [], data: false }; pageRows.push(row); }
+      row.items.push(item);
     }
     pageRows.sort((a, b) => b.y - a.y).forEach(row => {
       row.items.sort((a, b) => a.x - b.x);
@@ -95,19 +109,29 @@ export function parseResultRows(rows, subject = null) {
   return rows.filter(isDataRow).map(row => {
     const enrollment_number = enrollment(row.text);
     const cells = row.cells; const idx = cells.findIndex(cell => cell.includes(enrollment_number));
+    const roll_number = Number(cells[idx - 1]) || null;
+    const branch = cells[idx + 1] || "";
+    const division = cells[idx + 2] || "";
+    const firstMetricIndex = cells.slice(idx + 3).findIndex(cell => /^(?:\d+(?:\.\d+)?|AB|ABSENT|[-–—])$/i.test(cell));
+    const identityCells = firstMetricIndex >= 0 ? cells.slice(idx + 3, idx + 3 + firstMetricIndex) : [];
+    const mentor = identityCells.at(-1) || "";
+    const full_name = identityCells.slice(0, -1).join(" ").trim();
     // Ignore branch/division/name cells (for example D1) and only treat
     // standalone score cells as marks. This also keeps an em dash/AB row as
     // a valid absent result with a null total.
     const scoreCells = cells.slice(idx + 1).filter(cell => /^(?:\d+(?:\.\d+)?|AB|ABSENT|[-–—])$/i.test(cell));
     const nums = scoreCells.flatMap(cell => (cell.match(/\d+(?:\.\d+)?/g) || []).map(Number));
     const defaultMax = Number(subject?.max_marks || subject?.maxMarks || 60) || 60;
-    const hasMaxColumn = nums.length >= 3 && [60, 100].includes(nums[nums.length - 1]) && nums[nums.length - 2] <= nums[nums.length - 1];
+    // A three-number mid-sem row is section A + section B + total. Requiring
+    // four numbers prevents a legitimate total of exactly 60 from being
+    // mistaken for a separate max-mark column.
+    const hasMaxColumn = nums.length >= 4 && [60, 100].includes(nums[nums.length - 1]) && nums[nums.length - 2] <= nums[nums.length - 1];
     const scoreNums = hasMaxColumn ? nums.slice(0, -1) : nums;
     const marks = scoreNums.length ? scoreNums[scoreNums.length - 1] : null;
     const sectionNums = scoreNums.slice(0, -1);
     const sectionA = sectionNums[0] ?? null;
     const sectionB = sectionNums[1] ?? (marks != null && sectionA != null && marks >= sectionA ? marks - sectionA : null);
-    return { enrollment_number, name: cells[idx + 1] || "", branch: "", division: "", mentor: "", section_a_marks: sectionA, section_b_marks: sectionB, total_marks: marks, max_marks: hasMaxColumn ? nums[nums.length - 1] : defaultMax };
+    return { enrollment_number, roll_number, name: full_name, full_name, branch, division, mentor, section_a_marks: sectionA, section_b_marks: sectionB, total_marks: marks, max_marks: hasMaxColumn ? nums[nums.length - 1] : defaultMax };
   }).filter(row => row.total_marks == null || row.total_marks <= 100);
 }
 

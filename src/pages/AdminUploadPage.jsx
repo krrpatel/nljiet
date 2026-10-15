@@ -14,6 +14,22 @@ import { parseAttendancePdf, parseResultPdf } from "@/lib/pdfPipeline";
 
 const BRANCHES = ["CSE", "AIML", "DS"];
 const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
+const RESULT_IDENTITY_FIELDS = ["roll_number", "full_name", "branch", "division"];
+
+async function persistResultRow(method, id, payload) {
+  try {
+    return method === "update" ? await api.entities.Results.update(id, payload) : await api.entities.Results.create(payload);
+  } catch (error) {
+    // Keep imports usable while an existing Supabase project is waiting for
+    // the rank-checker migration to be applied. The enriched payload is used
+    // automatically as soon as those columns exist.
+    const message = String(error?.message || "").toLowerCase();
+    if (!RESULT_IDENTITY_FIELDS.some(field => message.includes(field)) || !/(column|schema|field)/i.test(message)) throw error;
+    const legacyPayload = { ...payload };
+    RESULT_IDENTITY_FIELDS.forEach(field => delete legacyPayload[field]);
+    return method === "update" ? api.entities.Results.update(id, legacyPayload) : api.entities.Results.create(legacyPayload);
+  }
+}
 
 async function upsertResultRows(records, { subjectId, semester, academicYearId, examLabel, isRemse }) {
   const existing = await api.entities.Results.filter({ subject_id: subjectId, semester });
@@ -34,9 +50,9 @@ async function upsertResultRows(records, { subjectId, semester, academicYearId, 
         // A re-exam corrects an existing AB row in-place when one exists. If
         // there is no AB row, it is stored as a separate re-exam result.
         const payload = absent && !exact ? { ...record, exam_type: target.exam_type } : record;
-        await api.entities.Results.update(target.id, payload);
+        await persistResultRow("update", target.id, payload);
       } else {
-        const created = await api.entities.Results.create(record);
+        const created = await persistResultRow("create", null, record);
         exactByEnrollment.set(record.enrollment_number, created);
       }
       imported += 1;
@@ -245,6 +261,10 @@ export default function AdminUploadPage() {
       uploadedFileUrl = (await api.integrations.Core.UploadFile({ file: resForm.file, folder: "result-sources" })).file_url;
       const records = students.map(s => ({
         enrollment_number: s.enrollment_number,
+        roll_number: s.roll_number ?? null,
+        full_name: s.full_name || s.name || null,
+        branch: s.branch || resForm.branch,
+        division: s.division || null,
         subject_id: resForm.subject_id,
         academic_year_id: resForm.academic_year_id || null,
         semester,
@@ -275,6 +295,7 @@ export default function AdminUploadPage() {
         subject_id: resForm.subject_id,
         subject_code: subject.code,
         exam_type: examLabel,
+        exam_number: isRemse ? null : Number(resForm.exam_number) || null,
         pdf_url: uploadedFileUrl,
         status: "done",
         records_imported: imported,

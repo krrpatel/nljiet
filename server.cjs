@@ -86,20 +86,51 @@ function matchesMaskedEmail(value, masked) {
   const [prefix,suffix] = pattern.split("*");
   return email.startsWith(prefix) && email.endsWith(suffix) && email.length > prefix.length + suffix.length;
 }
+function normalizeOctopodProfile(profile, academicYears = []) {
+  const student = profile?.data || profile || {};
+  const name = first(student, ["StudentFullName", "fullName", "name"]) || [student.FirstName, student.MiddleName, student.LastName].filter(Boolean).join(" ").trim();
+  const email = first(student, ["EmailAddress", "Email", "email", "StudentEmail"]);
+  const rollNumber = first(student, ["RollNumber", "rollNumber", "CurrentRollNumber", "currentRollNumber"]);
+  const semesterValue = first(student, ["Semester", "semester", "CurrentSemester", "currentSemester", "SemesterNo", "semesterNo"]);
+  const semester = Number(semesterValue) > 0 ? Number(semesterValue) : Number(process.env.OCTOPOD_DEFAULT_SEMESTER || 5);
+  const academicYearId = first(student, ["AcademicYearID", "academicYearId", "currentYear"]) || academicYears[0]?.AYID || null;
+  const maskedEmail = email && String(email).includes("*") ? String(email) : email ? `${String(email).slice(0,2)}***${String(email).slice(String(email).indexOf("@"))}` : "";
+  return {
+    ...profile,
+    academicYears,
+    currentYear: profile?.currentYear || academicYearId,
+    semester,
+    StudentID: first(student, ["StudentID", "studentId"]),
+    AcademyID: first(student, ["AcademyID", "academyId"]),
+    MediumID: first(student, ["MediumID", "mediumId"]),
+    StandardID: first(student, ["StandardID", "standardId"]),
+    DivisionID: first(student, ["DivisionID", "divisionId"]),
+    AcademicYearID: academicYearId,
+    UIDNumber: first(student, ["UIDNumber", "uidNumber", "EnrollmentNumber", "enrollmentNumber"]),
+    RollNumber: rollNumber,
+    roll_number: Number(rollNumber) > 0 ? Number(rollNumber) : null,
+    fullName: name || "",
+    email,
+    maskedEmail,
+    branch: first(student, ["Branch", "branch", "Department", "department"]) || "",
+    division: first(student, ["DivisionName", "divisionName", "Division", "division"]) || "",
+  };
+}
 async function octopodValidate(enrollmentNumber) {
-  const applicationId = process.env.OCTOPOD_APPLICATION_ID || enrollmentNumber;
+  const applicationId = String(enrollmentNumber || "").trim();
+  if (!/^\d{10,14}$/.test(applicationId)) throw new Error("Invalid enrollment number");
   const years = await octopodGet("/ajax/student/academic/years", { AcademyID: process.env.OCTOPOD_ACADEMY_ID || 1627, applicationId, isApplicationId: 1 });
-  const academicYears = (Array.isArray(years) ? years : years?.academicYears || []).map(y => ({ AYID: first(y,["AYID","ayid"]), AcademicTitle: first(y,["AcademicTitle","academicTitle","title"]) }));
-  const studentAcademicYear = first(years?.data || years, ["AcademicYearID", "academicYearId", "currentYear"]);
-  const year = academicYears.find(y => String(y.AYID) === String(studentAcademicYear)) || academicYears.find(y => y.AYID) || {};
+  const rawYears = Array.isArray(years)
+    ? years
+    : Array.isArray(years?.data)
+      ? years.data
+      : Array.isArray(years?.academicYears)
+        ? years.academicYears
+        : Object.values(years || {}).filter(value => value && typeof value === "object");
+  const academicYears = (Array.isArray(rawYears) ? rawYears : []).map(y => ({ AYID: first(y,["AYID","ayid","AcademicYearID","academicYearId"]), AcademicTitle: first(y,["AcademicTitle","academicTitle","title"]) }));
+  const year = academicYears[0] || {};
   const profile = await octopodGet("/ajax/validate/application", { AcademyID: process.env.OCTOPOD_ACADEMY_ID || 1627, applicationId, IsOTPRequired: 0, otp: "", Year: year.AYID || "", paymentCategory: "AcademicFees" });
-  const student = profile?.data || profile;
-  const email = first(student,["Email","email","StudentEmail","EmailAddress"]);
-  const maskedEmail = email && String(email).includes("*") ? email : email ? `${email.slice(0,2)}***${email.slice(email.indexOf("@"))}` : "";
-  const currentAcademicYearId = first(student,["AcademicYearID","academicYearId"]) || profile?.currentYear || year.AYID || null;
-  const sourceSemester = first(student,["Semester","semester","CurrentSemester","currentSemester"]);
-  const semester = Number(sourceSemester) > 0 ? Number(sourceSemester) : Math.max(1, academicYears.length || 1);
-  return { ...profile, academicYears, currentYear: profile?.currentYear || currentAcademicYearId, semester, StudentID:first(student,["StudentID","studentId"]), AcademyID:first(student,["AcademyID","academyId"]), MediumID:first(student,["MediumID","mediumId"]), StandardID:first(student,["StandardID","standardId"]), DivisionID:first(student,["DivisionID","divisionId"]), AcademicYearID:currentAcademicYearId, fullName:first(student,["StudentFullName","fullName","name"]) || "", email, maskedEmail };
+  return normalizeOctopodProfile(profile, academicYears);
 }
 const requestHandler = async (req, res) => {
   if (req.method === "OPTIONS") return json(res, 204, {});
@@ -152,9 +183,21 @@ const requestHandler = async (req, res) => {
       if (req.method === "POST") { const data=await body(req), rows=parts[3]==="bulk"?data:[data]; const created=rows.map(x=>({...x,id:id(),created_date:new Date().toISOString()})); write(name,items.concat(created)); return json(res,201,parts[3]==="bulk"?created:created[0]); }
       if (req.method === "PATCH") { const data=await body(req), i=items.findIndex(x=>x.id===itemId); if(i<0)return json(res,404,{error:"Not found"}); items[i]={...items[i],...data,updated_date:new Date().toISOString()}; write(name,items); return json(res,200,items[i]); }
     }
+    if (parts[0] === "api" && parts[1] === "rank-checker") {
+      const { default: rankChecker } = await import("./RANK CHECKER/api/index.js");
+      return rankChecker(req, res);
+    }
     if (parts[0]==="api" && parts[1]==="functions" && parts[2]==="octopodValidate") {
       const { enrollmentNumber } = await body(req); if (!enrollmentNumber) return json(res,400,{error:"invalid_enrollment"});
-      try { const result=await octopodValidate(enrollmentNumber); if(!result.StudentID && !result.email) return json(res,422,{error:"invalid_enrollment"}); return json(res,200,result); } catch(e) { console.error("Octopod validation failed:",e.message); return json(res,502,{error:"octopod_unavailable"}); }
+      try {
+        const result=await octopodValidate(enrollmentNumber);
+        if(!result.StudentID && !result.email) return json(res,422,{error:"invalid_enrollment"});
+        if (supabaseUrl && supabaseKey) {
+          const existing = await supabaseRequest("students", "GET", supabaseKey, `?enrollment_number=eq.${encodeURIComponent(String(enrollmentNumber).trim())}&select=id`);
+          if (existing?.length) return json(res,409,{error:"already_registered"});
+        }
+        return json(res,200,result);
+      } catch(e) { console.error("Octopod validation failed:",e.message); return json(res,502,{error:"octopod_unavailable"}); }
     }
     if (parts[0]==="api" && parts[1]==="functions" && parts[2]==="octopodConfirmEmail") {
       const { enrollmentNumber, enteredEmail } = await body(req); try { const result=await octopodValidate(enrollmentNumber); if(!matchesMaskedEmail(enteredEmail,result.email)) return json(res,400,{error:"email_mismatch"}); return json(res,200,{email:String(enteredEmail).trim().toLowerCase()}); } catch(e) { console.error("Octopod email confirmation failed:",e.message); return json(res,502,{error:"octopod_unavailable"}); }
@@ -162,12 +205,14 @@ const requestHandler = async (req, res) => {
     if (parts[0]==="api" && parts[1]==="functions" && parts[2]==="octopodCompleteRegistration") {
       const { enrollmentNumber, email, profile } = await body(req);
       if (!supabaseUrl || !supabaseKey) return json(res,503,{error:"Database is not configured"});
+      const verified = await octopodValidate(enrollmentNumber);
       const requestedBranch = String(profile?.branch || profile?.Branch || profile?.Department || process.env.OCTOPOD_DEFAULT_BRANCH || "CSE").trim().toUpperCase();
       const rawDivision = profile?.division || profile?.Division || profile?.DivisionName;
       const requestedDivision = String(rawDivision || "D1").trim().toUpperCase();
       const validDivision = /^D(?:[1-9]|1[0-5])$/;
       if (rawDivision && !validDivision.test(requestedDivision)) return json(res, 400, { error: "invalid_division" });
-      const registration = { enrollment_number: enrollmentNumber, full_name: profile?.fullName || profile?.StudentFullName || "Unknown", branch: ["CSE", "DS", "AIML"].includes(requestedBranch) ? requestedBranch : "CSE", division: requestedDivision, semester: Number(profile?.semester || profile?.currentSemester || profile?.academicYears?.length || 1) || 1, email };
+      if (!verified.StudentID || !verified.email || !matchesMaskedEmail(email, verified.email)) return json(res,400,{error:"email_mismatch"});
+      const registration = { enrollment_number: String(enrollmentNumber).trim(), full_name: verified.fullName || "Unknown", branch: ["CSE", "DS", "AIML"].includes(requestedBranch) ? requestedBranch : "CSE", division: requestedDivision, semester: Number(verified.semester || profile?.semester || 1) || 1, email: String(email).trim().toLowerCase(), student_id: verified.StudentID ? String(verified.StudentID) : null, uid_number: verified.UIDNumber ? String(verified.UIDNumber) : String(enrollmentNumber).trim(), academic_year_id: verified.AcademicYearID ? String(verified.AcademicYearID) : null, roll_number: verified.roll_number };
       try {
         const existing = await supabaseRequest("students", "GET", supabaseKey, `?enrollment_number=eq.${encodeURIComponent(enrollmentNumber)}&select=id`);
         if (existing?.[0]?.id) await supabaseRequest("students", "PATCH", supabaseKey, `?id=eq.${encodeURIComponent(existing[0].id)}`, registration);
