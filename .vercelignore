@@ -1,0 +1,4 @@
+# The Rank Checker is a separate Vercel project. Excluding it from the
+# main portal deployment prevents Vercel from discovering its nested API
+# as a function named "RANK CHECKER/api/index.js".
+RANK CHECKER/
