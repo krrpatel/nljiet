@@ -14,10 +14,32 @@ import {
 } from "recharts";
 import "./styles.css";
 
-const initialForm = { lookup: "", lookupType: "auto", branch: "CSE", semester: "5", capacity: "40" };
+const initialForm = { lookup: "", lookupType: "enrollment", branch: "CSE", semester: "5", capacity: "40" };
 
-function shortLabel(value) {
-  return String(value || "").replace(/^BE\d+/, "").trim() || String(value || "");
+const subjectAbbreviations = {
+  "MICROPROCESSOR AND INTERFACING": "MI",
+  "DATABASE MANAGEMENT SYSTEM": "DBMS",
+  "DESIGN AND ANALYSIS OF ALGORITHM": "DAA",
+  "OPERATING SYSTEM": "OS",
+  "COMPUTER NETWORK": "CN",
+  "OBJECT ORIENTED PROGRAMMING": "OOP",
+  "PROBABILITY AND STATISTICS": "PS",
+  "DISCRETE MATHEMATICS": "DM",
+  "SOFTWARE ENGINEERING": "SE",
+  "WEB TECHNOLOGY": "WT",
+  "ARTIFICIAL INTELLIGENCE": "AI",
+  "MACHINE LEARNING": "ML",
+  "COMPUTER GRAPHICS": "CG",
+  "DATA SCIENCE": "DS",
+};
+
+function abbreviatedSubject(subject) {
+  const code = String(subject?.code || "").replace(/^BE\d+/, "").trim();
+  const name = String(subject?.name || "").trim().toUpperCase();
+  if (subjectAbbreviations[name]) return subjectAbbreviations[name];
+  if (code && code.length <= 8 && !/^\d+$/.test(code)) return code.toUpperCase();
+  const initials = name.split(/[^A-Z0-9]+/).filter(Boolean).filter(word => word.length > 1).map(word => word[0]).join("");
+  return initials.slice(0, 6) || "Subject";
 }
 
 function formatName(value) {
@@ -37,10 +59,16 @@ function App() {
   const [cooldownUntil, setCooldownUntil] = useState(0);
 
   const chartData = useMemo(() => (data?.target?.subject_scores || []).map(subject => ({
-    subject: shortLabel(subject.code),
+    subject: abbreviatedSubject(subject),
+    fullSubject: subject.name || subject.code,
     "MSE 1": subject.midsem1,
     "MSE 2": subject.midsem2,
   })), [data]);
+
+  const missingEntries = useMemo(() => (data?.target?.subject_scores || []).flatMap(subject => {
+    const label = abbreviatedSubject(subject);
+    return [subject.midsem1 == null ? `${label} MSE 1 entry is missing` : null, subject.midsem2 == null ? `${label} MSE 2 entry is missing` : null].filter(Boolean);
+  }), [data]);
 
   const examTotals = useMemo(() => data ? [
     { exam: "MSE 1", marks: data.target.midsem1_total },
@@ -85,16 +113,13 @@ function App() {
         <section className="hero">
           <div className="eyebrow">CSE · Mid Semester analytics</div>
           <h1>Know exactly where you stand.</h1>
-          <p>Search by enrollment number or current roll number to see your combined MSE rank, marks, charts, and calculated division.</p>
+          <p>Enter one number to see your new roll number, marks, charts, and calculated division.</p>
           <form className="search-panel" onSubmit={submit}>
-            <label className="search-field search-field-wide"><span>Enrollment / roll number</span><input value={form.lookup} onChange={event => update("lookup", event.target.value)} inputMode="numeric" placeholder="e.g. 241430131182 or 39" required /></label>
-            <label className="search-field"><span>Search by</span><select value={form.lookupType} onChange={event => update("lookupType", event.target.value)}><option value="auto">Auto detect</option><option value="enrollment">Enrollment number</option><option value="roll">Current roll number</option></select></label>
-            <label className="search-field"><span>Branch</span><select value={form.branch} onChange={event => update("branch", event.target.value)}><option>CSE</option><option>AIML</option><option>DS</option></select></label>
-            <label className="search-field"><span>Semester</span><select value={form.semester} onChange={event => update("semester", event.target.value)}>{[1,2,3,4,5,6,7,8].map(value => <option key={value} value={value}>Semester {value}</option>)}</select></label>
-            <label className="search-field"><span>Students / division</span><select value={form.capacity} onChange={event => update("capacity", event.target.value)}>{Array.from({ length: 11 }, (_, index) => index + 30).map(value => <option key={value} value={value}>{value} students</option>)}</select></label>
-            <button className="search-button" type="submit" disabled={loading}>{loading ? "Checking..." : "Check my rank"}<span>↗</span></button>
+            <label className="search-field"><span>Enter number</span><input value={form.lookup} onChange={event => update("lookup", event.target.value)} inputMode="numeric" placeholder="Enrollment or current roll number" required /></label>
+            <label className="search-field"><span>Number type</span><select value={form.lookupType} onChange={event => update("lookupType", event.target.value)}><option value="enrollment">Enrollment number</option><option value="roll">Current roll number</option></select></label>
+            <button className="search-button" type="submit" disabled={loading}>{loading ? "Checking..." : "Check result"}<span>↗</span></button>
           </form>
-          <div className="hero-footnote"><span>↗</span> Name is verified from Octopod when the result is found. <span>·</span> Ties remain together when a division reaches its capacity.</div>
+          <div className="hero-footnote"><span>↗</span> Select whether you are entering an enrollment number or current roll number. <span>·</span> Ties remain together when a division reaches its capacity.</div>
         </section>
 
         {error && <div className="error-banner">{error}</div>}
@@ -105,15 +130,17 @@ function App() {
               <div className="identity-card">
                 <div className="identity-kicker">Result found</div>
                 <h2>{formatName(data.target.full_name)}</h2>
-                <div className="identity-meta"><span>{data.target.enrollment_number}</span><span>Roll no. {data.target.roll_number ?? "-"}</span><span>{data.settings.branch} · Sem {data.settings.semester}</span></div>
+                <div className="identity-meta"><span>{data.target.enrollment_number}</span><span>Old roll no. {data.target.roll_number ?? "-"}</span><span>Old division {data.target.source_division || "-"}</span><span>{data.settings.branch} · Sem {data.settings.semester}</span></div>
                 <div className="identity-divider" />
-                <div className="mini-pairs"><div><small>Calculated division</small><strong>{data.target.calculated_division}</strong></div><div><small>Source division</small><strong>{data.target.source_division || "-"}</strong></div><div><small>Data coverage</small><strong>{data.target.completed_entries}/12 entries</strong></div></div>
+                <div className="mini-pairs"><div><small>New division</small><strong>{data.target.calculated_division}</strong></div><div><small>New roll no.</small><strong>{data.target.new_roll_number}</strong></div><div><small>Data coverage</small><strong>{data.target.completed_entries}/12 entries</strong></div></div>
               </div>
-              <div className="rank-card"><div className="rank-label">Overall rank</div><div className="rank-number">{data.target.rank_label}</div><div className="rank-caption">among all matching result records</div></div>
+              <div className="rank-card"><div className="rank-label">New roll number</div><div className="rank-number">{data.target.new_roll_number}</div><div className="rank-caption">within {data.target.calculated_division}</div></div>
               <div className="score-card"><div className="score-label">Normalized score</div><div className="score-number">{data.target.ranking_score}<small>/180</small></div><div className="score-caption">ceil(total marks ÷ 4)</div><div className="score-raw">Raw total {data.target.total_marks}/{data.target.max_marks}</div></div>
             </section>
 
-            <div className="coverage-banner"><span className="status-dot" /> Available exam data: <strong>{data.availableExams.length ? data.availableExams.map(exam => exam.toUpperCase().replace("MIDSEM", "MSE ")).join(" + ") : "none"}</strong><span className="coverage-muted">Upload both midsems to complete the /720 calculation.</span></div>
+            <div className="coverage-banner"><span className="status-dot" /> Available exam data: <strong>{data.availableExams.length ? data.availableExams.map(exam => exam.toUpperCase().replace("MIDSEM", "MSE ")).join(" + ") : "none"}</strong><span className="coverage-muted">{missingEntries.length ? "See missing subject entries below." : "Complete subject coverage."}</span></div>
+
+            {missingEntries.length > 0 && <div className="missing-entries" role="status"><strong>Missing entries:</strong> {missingEntries.join(" · ")}</div>}
 
             <section className="chart-grid">
               <div className="panel chart-panel"><div className="panel-heading"><div><div className="panel-kicker">Subject performance</div><h3>Marks by subject</h3></div><span className="chart-legend-dot">●</span></div><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6eaf0" /><XAxis dataKey="subject" tick={{ fill: "#718096", fontSize: 11 }} /><YAxis domain={[0, 60]} tick={{ fill: "#718096", fontSize: 11 }} /><Tooltip /><Legend /><Bar dataKey="MSE 1" fill="#12b8a6" radius={[5,5,0,0]} /><Bar dataKey="MSE 2" fill="#4057d6" radius={[5,5,0,0]} /></BarChart></ResponsiveContainer></div></div>
@@ -122,13 +149,13 @@ function App() {
 
             <section className="panel division-panel"><div className="panel-heading"><div><div className="panel-kicker">Capacity planner</div><h3>Calculated division progress</h3></div><span className="trend-pill">6 divisions max · {data.settings.capacity} seats</span></div><div className="division-grid">{Array.from({ length: 6 }, (_, index) => { const division = `D${index + 1}`; const item = data.divisions.find(entry => entry.name === division); const count = item?.count || 0; const percent = Math.min(100, Math.round((count / data.settings.capacity) * 100)); return <div className={`division-item ${data.target.calculated_division === division ? "selected" : ""}`} key={division}><div className="division-line"><strong>{division}</strong><span>{count} / {data.settings.capacity}</span></div><div className="progress-track"><div className="progress-fill" style={{ width: `${percent}%` }} /></div><small>{data.target.calculated_division === division ? "Your calculated class" : count ? `${percent}% filled` : "Awaiting results"}</small></div>; })}</div><p className="tie-note">Tie-aware allocation: students with the same normalized score are kept in the same division, even if that division goes above its nominal limit.</p></section>
 
-            <section className="panel roster-panel"><div className="panel-heading"><div><div className="panel-kicker">Full cohort</div><h3>All ranked students</h3></div><span className="trend-pill">{data.students.length} records</span></div><div className="table-scroll"><table><thead><tr><th>Rank</th><th>Student</th><th>Enrollment</th><th>Roll</th><th>Score</th><th>Division</th></tr></thead><tbody>{data.students.map(student => <tr className={student.enrollment_number === data.target.enrollment_number ? "highlight-row" : ""} key={student.enrollment_number}><td><strong>{student.rank}</strong></td><td>{student.enrollment_number === data.target.enrollment_number ? formatName(data.target.full_name) : formatName(student.full_name || "Student")}</td><td className="mono">{student.enrollment_number}</td><td>{student.roll_number ?? "-"}</td><td><strong>{student.ranking_score}</strong><span className="muted-cell"> ({student.total_marks}/{student.max_marks})</span></td><td><span className="division-badge">{student.calculated_division}</span></td></tr>)}</tbody></table></div></section>
+            <section className="panel roster-panel"><div className="panel-heading"><div><div className="panel-kicker">Your calculated division</div><h3>Students in {data.target.calculated_division}</h3></div><span className="trend-pill">{data.students.length} students</span></div><div className="table-scroll"><table><thead><tr><th>New roll no.</th><th>Student</th><th>Enrollment</th><th>Current roll</th><th>Score</th><th>Division</th></tr></thead><tbody>{data.students.map(student => <tr className={student.enrollment_number === data.target.enrollment_number ? "highlight-row" : ""} key={student.enrollment_number}><td><strong>{student.new_roll_number}</strong></td><td>{student.enrollment_number === data.target.enrollment_number ? formatName(data.target.full_name) : formatName(student.full_name || "Student")}</td><td className="mono">{student.enrollment_number}</td><td>{student.roll_number ?? "-"}</td><td><strong>{student.ranking_score}</strong><span className="muted-cell"> ({student.total_marks}/{student.max_marks})</span></td><td><span className="division-badge">{student.calculated_division}</span></td></tr>)}</tbody></table></div></section>
           </div>
         )}
 
-        {!data && !error && <section className="empty-state"><div className="empty-icon">R</div><h2>Your result story starts here.</h2><p>Enter your enrollment number or roll number above. The checker combines both midsems, calculates the normalized score, and places ties together.</p></section>}
+        {!data && !error && <section className="empty-state"><div className="empty-icon">R</div><h2>Your result story starts here.</h2><p>Enter your number, choose its type, and see only the students in your calculated division.</p></section>}
       </main>
-      <footer className="footer">Student Portal · Rank Checker <span>•</span> Marks are read from the published Supabase result records.</footer>
+      <footer className="footer">Student Portal · Rank Checker <span>•</span> Marks are read from the published Supabase result records.<br /><span className="watermark">Made by Benzene aka Krrish Patel · Instagram: <a href="https://instagram.com/yourbenzene" target="_blank" rel="noreferrer">@yourbenzene</a></span></footer>
     </div>
   );
 }

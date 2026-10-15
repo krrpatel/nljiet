@@ -126,6 +126,7 @@ function allocateDivisions(students, capacity) {
   let division = 1;
   let count = 0;
   let previousScore = null;
+  const divisionRolls = new Map();
   return students.map(student => {
     if (count >= capacity && student.ranking_score !== previousScore) {
       division += 1;
@@ -133,7 +134,15 @@ function allocateDivisions(students, capacity) {
     }
     count += 1;
     previousScore = student.ranking_score;
-    return { ...student, calculated_division: `D${division}` };
+    const calculatedDivision = `D${division}`;
+    const newRollNumber = (divisionRolls.get(calculatedDivision) || 0) + 1;
+    divisionRolls.set(calculatedDivision, newRollNumber);
+    return {
+      ...student,
+      calculated_division: calculatedDivision,
+      division_rank: newRollNumber,
+      new_roll_number: newRollNumber,
+    };
   });
 }
 
@@ -189,10 +198,6 @@ function aggregate(rows, subjects, students, options) {
       }))
     };
   }).sort((a, b) => b.ranking_score - a.ranking_score || b.total_marks - a.total_marks || String(a.enrollment_number).localeCompare(String(b.enrollment_number)));
-  calculated.forEach((student, index) => {
-    student.rank = index === 0 || student.ranking_score !== calculated[index - 1].ranking_score ? index + 1 : calculated[index - 1].rank;
-    student.rank_label = `${student.rank}/${calculated.length}`;
-  });
   return { students: allocateDivisions(calculated, options.capacity), subjectIds, maxTotal };
 }
 
@@ -224,13 +229,14 @@ export default async function handler(req, res) {
     const target = result.students.find(student => student.enrollment_number === byEnrollment.enrollment_number);
     if (!target) return json(res, 404, { error: "The student was found, but no rankable MSE records exist for this cohort." });
     try { target.full_name = await octopodName(target.enrollment_number) || target.full_name; } catch { /* Stored result name remains a safe fallback. */ }
+    const divisionStudents = result.students.filter(student => student.calculated_division === target.calculated_division);
     const divisions = [...new Set(result.students.map(student => student.calculated_division))].map(name => {
       const members = result.students.filter(student => student.calculated_division === name);
       return { name, count: members.length, capacity, percent: Math.min(100, Math.round((members.length / capacity) * 100)) };
     });
     return json(res, 200, {
       target,
-      students: result.students,
+      students: divisionStudents,
       divisions,
       settings: { branch, semester, capacity, maxDivisions: 6, maxMarks: result.maxTotal, normalizedRule: "ceil(total marks / 4)" },
       availableExams: [...new Set(rows.map(row => normalizeExam(row.exam_type)).filter(Boolean))].sort()
