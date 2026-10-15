@@ -37,7 +37,7 @@ Set the Replit Run command to `npm start` and configure all variables from `.env
 
 ## Vercel
 
-`vercel.json` configures the Vite build, routes `/api/*` to the serverless function in `api/index.js`, and rewrites client-side routes such as `/profile`, `/fees`, and `/admin/*` to `index.html`. Add the variables from `.env.example` in Vercel Project Settings → Environment Variables. `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_ADMIN_EMAILS` are client-visible; keep service-role, Octopod, AI, and storage credentials server-only. `PORT` is not required on Vercel.
+The repository-level `vercel.json` configures two Vercel services: `portal` for the main Vite app and `rankchecker` for the standalone checker. The portal is public at `/` and `/api/*`; the checker is public at `/rankchecker/*`. Add the variables from `.env.example` in Vercel Project Settings → Environment Variables. `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_ADMIN_EMAILS` are client-visible; keep service-role, Octopod, AI, and storage credentials server-only. `RANKCHECKER_URL` is injected automatically by the Vercel service binding and must not be set manually. `PORT` is not required on Vercel.
 
 ## Admin data setup
 

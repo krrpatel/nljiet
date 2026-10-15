@@ -57,6 +57,7 @@ async function listSupabaseAuthUsers() {
   return users;
 }
 const OCTOPOD_BASE = process.env.OCTOPOD_BASE_URL || "https://octopod.co.in";
+const rankCheckerServiceUrl = process.env.RANKCHECKER_URL;
 const OCTOPOD_REFERER = "https://octopod.co.in/student/admission/0a8283bbbe6a76110b1f44e9db656812";
 const octopodHeaders = { Accept:"application/json, text/javascript, */*; q=0.01", "Accept-Language":"en,fr;q=0.9,gu;q=0.8,hi;q=0.7", "X-Requested-With":"XMLHttpRequest", "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36", Referer:OCTOPOD_REFERER };
 async function octopodGet(endpoint, params = {}) {
@@ -132,6 +133,19 @@ async function octopodValidate(enrollmentNumber) {
   const profile = await octopodGet("/ajax/validate/application", { AcademyID: process.env.OCTOPOD_ACADEMY_ID || 1627, applicationId, IsOTPRequired: 0, otp: "", Year: year.AYID || "", paymentCategory: "AcademicFees" });
   return normalizeOctopodProfile(profile, academicYears);
 }
+async function proxyRankChecker(req, res, requestUrl) {
+  if (!rankCheckerServiceUrl) {
+    const { default: rankChecker } = await import("./rankchecker/api/index.js");
+    return rankChecker(req, res);
+  }
+  if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
+  const target = new URL("/api/rank-checker", rankCheckerServiceUrl);
+  requestUrl.searchParams.forEach((value, key) => target.searchParams.set(key, value));
+  const response = await fetch(target, { headers: { Accept: "application/json" } });
+  const contentType = response.headers.get("content-type") || "application/json";
+  res.writeHead(response.status, { "Content-Type": contentType, "Cache-Control": "no-store" });
+  res.end(Buffer.from(await response.arrayBuffer()));
+}
 const requestHandler = async (req, res) => {
   if (req.method === "OPTIONS") return json(res, 204, {});
   const u = new URL(req.url, "http://localhost"), parts = u.pathname.split("/").filter(Boolean);
@@ -184,8 +198,7 @@ const requestHandler = async (req, res) => {
       if (req.method === "PATCH") { const data=await body(req), i=items.findIndex(x=>x.id===itemId); if(i<0)return json(res,404,{error:"Not found"}); items[i]={...items[i],...data,updated_date:new Date().toISOString()}; write(name,items); return json(res,200,items[i]); }
     }
     if (parts[0] === "api" && parts[1] === "rank-checker") {
-      const { default: rankChecker } = await import("./RANK CHECKER/api/index.js");
-      return rankChecker(req, res);
+      return proxyRankChecker(req, res, u);
     }
     if (parts[0]==="api" && parts[1]==="functions" && parts[2]==="octopodValidate") {
       const { enrollmentNumber } = await body(req); if (!enrollmentNumber) return json(res,400,{error:"invalid_enrollment"});

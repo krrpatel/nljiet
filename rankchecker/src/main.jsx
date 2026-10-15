@@ -24,6 +24,11 @@ function formatName(value) {
   return String(value || "Student").toLowerCase().replace(/\b\w/g, character => character.toUpperCase());
 }
 
+function rankApiPath() {
+  const mounted = window.location.pathname === "/rankchecker" || window.location.pathname.startsWith("/rankchecker/");
+  return mounted ? "/rankchecker/api/rank-checker" : "/api/rank-checker";
+}
+
 function App() {
   const [form, setForm] = useState(initialForm);
   const [data, setData] = useState(null);
@@ -54,7 +59,7 @@ function App() {
     setCooldownUntil(Date.now() + 2000);
     try {
       const params = new URLSearchParams(form);
-      const response = await fetch(`/api/rank-checker?${params.toString()}`);
+      const response = await fetch(`${rankApiPath()}?${params.toString()}`);
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Could not load the rank.");
       setData(body);
