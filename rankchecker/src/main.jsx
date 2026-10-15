@@ -117,6 +117,7 @@ function App() {
           <form className="search-panel" onSubmit={submit}>
             <label className="search-field"><span>Enter number</span><input value={form.lookup} onChange={event => update("lookup", event.target.value)} inputMode="numeric" placeholder="Enrollment or current roll number" required /></label>
             <label className="search-field"><span>Number type</span><select value={form.lookupType} onChange={event => update("lookupType", event.target.value)}><option value="enrollment">Enrollment number</option><option value="roll">Current roll number</option></select></label>
+            <label className="search-field"><span>Students per division</span><select value={form.capacity} onChange={event => update("capacity", event.target.value)}>{Array.from({ length: 11 }, (_, index) => index + 30).map(value => <option key={value} value={value}>{value} students</option>)}</select></label>
             <button className="search-button" type="submit" disabled={loading}>{loading ? "Checking..." : "Check result"}<span>↗</span></button>
           </form>
           <div className="hero-footnote"><span>↗</span> Select whether you are entering an enrollment number or current roll number. <span>·</span> Ties remain together when a division reaches its capacity.</div>
@@ -155,7 +156,8 @@ function App() {
 
         {!data && !error && <section className="empty-state"><div className="empty-icon">R</div><h2>Your result story starts here.</h2><p>Enter your number, choose its type, and see only the students in your calculated division.</p></section>}
       </main>
-      <footer className="footer">Student Portal · Rank Checker <span>•</span> Marks are read from the published Supabase result records.<br /><span className="watermark">Made by Benzene aka Krrish Patel · Instagram: <a href="https://instagram.com/yourbenzene" target="_blank" rel="noreferrer">@yourbenzene</a></span></footer>
+      <footer className="footer">Student Portal · Rank Checker <span>•</span> Marks are read from the official marks sheet.</footer>
+      <div className="watermark">Made by Benzene aka Krrish Patel · Instagram: <a href="https://instagram.com/yourbenzene" target="_blank" rel="noreferrer">@yourbenzene</a></div>
     </div>
   );
 }
