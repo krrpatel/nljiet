@@ -38,7 +38,7 @@
       }
     },
     {
-      "source": "/rankchecker/(.*)",
+      "source": "/rankchecker/:path*",
       "destination": {
         "service": "rankchecker",
         "path": "/:path*"
