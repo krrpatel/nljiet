@@ -13,8 +13,52 @@ const json = (res, status, value) => {
 };
 
 function clientAddress(req) {
-  const forwarded = String(req.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
+  const forwarded = String(req.headers?.["x-vercel-forwarded-for"] || req.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
   return forwarded || String(req.headers?.["x-real-ip"] || req.socket?.remoteAddress || "unknown").trim();
+}
+
+function decodeHeader(value) {
+  try { return decodeURIComponent(String(value || "")); } catch { return String(value || ""); }
+}
+
+function visitorLocation(req) {
+  const city = decodeHeader(req.headers?.["x-vercel-ip-city"]);
+  const region = decodeHeader(req.headers?.["x-vercel-ip-country-region"]);
+  const country = decodeHeader(req.headers?.["x-vercel-ip-country"]);
+  return [city, region, country].filter(Boolean).join(", ") || "Unknown";
+}
+
+async function notifyTelegram(req, { lookup, lookupType, target }) {
+  const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const chatId = String(process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_USERNAME || "").trim();
+  if (!token || !chatId) return;
+
+  const message = [
+    "Rank Checker request",
+    `IP: ${clientAddress(req)}`,
+    `Location: ${visitorLocation(req)}`,
+    `Checked ${lookupType === "roll" ? "roll number" : "enrollment number"}: ${lookup}`,
+    `Enrollment number: ${target.enrollment_number || "Unknown"}`,
+    `Name: ${target.full_name || "Unknown"}`,
+    `Current roll: ${target.roll_number ?? "Unknown"}`,
+    `Time: ${new Date().toISOString()}`,
+  ].join("\n");
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(Number(process.env.TELEGRAM_NOTIFY_TIMEOUT_MS || 2500)),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.description || `Telegram request failed (${response.status})`);
+    }
+  } catch (error) {
+    // Notification failure must never make a valid rank lookup fail.
+    console.warn("Telegram rank notification failed:", error.message);
+  }
 }
 
 function allowRequest(req, res) {
@@ -475,6 +519,7 @@ export default async function handler(req, res) {
     const target = result.students.find(student => student.enrollment_number === byEnrollment.enrollment_number);
     if (!target) return json(res, 404, { error: "The student was found, but no rankable MSE records exist for this cohort." });
     try { target.full_name = await octopodName(target.enrollment_number) || target.full_name; } catch { /* Stored result name remains a safe fallback. */ }
+    await notifyTelegram(req, { lookup, lookupType, target });
     const divisionStudents = result.students.filter(student => student.calculated_division === target.calculated_division);
     const divisions = [...new Set(result.students.map(student => student.calculated_division))].map(name => {
       const members = result.students.filter(student => student.calculated_division === name);
