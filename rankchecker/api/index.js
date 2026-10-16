@@ -28,27 +28,61 @@ function visitorLocation(req) {
   return [city, region, country].filter(Boolean).join(", ") || "Unknown";
 }
 
-async function notifyTelegram(req, { lookup, lookupType, target }) {
+const SUBJECT_ABBREVIATIONS = {
+  "COMPUTER NETWORKS": "CN",
+  "SYSTEM SOFTWARE": "SS",
+  "MICROPROCESSOR AND INTERFACING": "MI",
+  "PYTHON FOR DATA SCIENCE": "PDS",
+  "WEB APPLICATION AND DEVELOPMENT": "WAD",
+  "OCCUPATIONAL HEALTH AND SAFETY MANAGEMENT": "OSM",
+};
+
+function escapeTelegramHtml(value) {
+  return String(value ?? "Unknown")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function subjectAbbreviation(subject) {
+  const name = String(subject?.name || "").replace(/\s+/g, " ").trim().toUpperCase();
+  return SUBJECT_ABBREVIATIONS[name] || subject?.code || name || "Subject";
+}
+
+function markLabel(value) {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+async function notifyTelegram(req, { lookup, lookupType, target, divisionSize, capacity }) {
   const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
   const chatId = String(process.env.TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_USERNAME || "").trim();
   if (!token || !chatId) return;
 
+  const normalizedScore = target.ranking_score ?? Math.ceil(Number(target.total_marks || 0) / 4);
+  const subjectRows = (target.subject_scores || []).map(subject => (
+    `  <b>${escapeTelegramHtml(subjectAbbreviation(subject))}</b>  MSE1: ${escapeTelegramHtml(markLabel(subject.midsem1))}  |  MSE2: ${escapeTelegramHtml(markLabel(subject.midsem2))}`
+  ));
   const message = [
-    "Rank Checker request",
-    `IP: ${clientAddress(req)}`,
-    `Location: ${visitorLocation(req)}`,
-    `Checked ${lookupType === "roll" ? "roll number" : "enrollment number"}: ${lookup}`,
-    `Enrollment number: ${target.enrollment_number || "Unknown"}`,
-    `Name: ${target.full_name || "Unknown"}`,
-    `Current roll: ${target.roll_number ?? "Unknown"}`,
-    `Time: ${new Date().toISOString()}`,
+    "<b>🎓 Rank Checker Report</b>",
+    "<i>Official marks sheet lookup</i>",
+    "",
+    `<b>👤 Student</b>\nName: <b>${escapeTelegramHtml(target.full_name)}</b>\nEnrollment: <code>${escapeTelegramHtml(target.enrollment_number)}</code>\nChecked by: ${escapeTelegramHtml(lookupType === "roll" ? "Current roll number" : "Enrollment number")} — <code>${escapeTelegramHtml(lookup)}</code>`,
+    "",
+    `<b>🏷️ Division &amp; Roll</b>\nOld roll: <b>${escapeTelegramHtml(target.roll_number)}</b>  |  Old division: <b>${escapeTelegramHtml(target.source_division)}</b>\nNew roll: <b>${escapeTelegramHtml(target.new_roll_number)}</b>  |  New division: <b>${escapeTelegramHtml(target.calculated_division)}</b>\nDivision students: <b>${escapeTelegramHtml(divisionSize)}</b>${capacity ? ` / ${escapeTelegramHtml(capacity)}` : ""}`,
+    "",
+    `<b>📊 Marks</b>\nMSE1 total: <b>${escapeTelegramHtml(target.midsem1_total)} / 360</b>\nMSE2 total: <b>${escapeTelegramHtml(target.midsem2_total)} / 360</b>\nRaw total: <b>${escapeTelegramHtml(target.total_marks)} / ${escapeTelegramHtml(target.max_marks || 720)}</b>\nRank score <i>(ceil total ÷ 4)</i>: <b>${escapeTelegramHtml(normalizedScore)}</b>\nEntries found: <b>${escapeTelegramHtml(target.completed_entries)}</b>`,
+    "",
+    `<b>📚 Subject-wise marks</b>\n${subjectRows.length ? subjectRows.join("\n") : "  No subject marks available"}`,
+    "",
+    `<b>🌐 Request details</b>\nIP: <code>${escapeTelegramHtml(clientAddress(req))}</code>\nLocation: ${escapeTelegramHtml(visitorLocation(req))}\nTime: ${escapeTelegramHtml(new Date().toISOString())}`,
   ].join("\n");
 
   try {
     const response = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML", disable_web_page_preview: true }),
       signal: AbortSignal.timeout(Number(process.env.TELEGRAM_NOTIFY_TIMEOUT_MS || 2500)),
     });
     if (!response.ok) {
@@ -519,12 +553,12 @@ export default async function handler(req, res) {
     const target = result.students.find(student => student.enrollment_number === byEnrollment.enrollment_number);
     if (!target) return json(res, 404, { error: "The student was found, but no rankable MSE records exist for this cohort." });
     try { target.full_name = await octopodName(target.enrollment_number) || target.full_name; } catch { /* Stored result name remains a safe fallback. */ }
-    await notifyTelegram(req, { lookup, lookupType, target });
     const divisionStudents = result.students.filter(student => student.calculated_division === target.calculated_division);
     const divisions = [...new Set(result.students.map(student => student.calculated_division))].map(name => {
       const members = result.students.filter(student => student.calculated_division === name);
       return { name, count: members.length, capacity, percent: Math.min(100, Math.round((members.length / capacity) * 100)) };
     });
+    await notifyTelegram(req, { lookup, lookupType, target, divisionSize: divisionStudents.length, capacity });
     return json(res, 200, {
       target,
       students: divisionStudents,
